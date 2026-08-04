@@ -37,6 +37,17 @@ final class RateLimiterTests: XCTestCase {
         XCTAssertEqual(waited, 1.0, accuracy: 0.0001)
     }
 
+    func testConsecutiveDeficitCallsStackRatherThanRepeat() async {
+        let clock = TestClock()
+        let limiter = RateLimiter(capacity: 3, refillPerSecond: 1, now: clock.now)
+
+        for _ in 0..<3 { _ = await limiter.reserve() }
+        let firstDeficitWait = await limiter.reserve()
+        let secondDeficitWait = await limiter.reserve()
+        XCTAssertEqual(firstDeficitWait, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(secondDeficitWait, 2.0, accuracy: 0.0001)
+    }
+
     func testTokensRefillOverTime() async {
         let clock = TestClock()
         let limiter = RateLimiter(capacity: 3, refillPerSecond: 1, now: clock.now)

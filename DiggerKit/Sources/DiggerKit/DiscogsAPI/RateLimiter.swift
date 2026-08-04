@@ -34,15 +34,17 @@ public actor RateLimiter {
     }
 
     /// Consumes one token. Returns how long the caller should wait before proceeding.
+    ///
+    /// `tokens` is allowed to go negative: an empty bucket must remember exactly how
+    /// far into debt it went, otherwise two callers landing on an empty bucket in the
+    /// same instant would both compute the same wait and wake at the same time —
+    /// defeating the limiter. Letting the balance go negative makes consecutive
+    /// deficit calls stack (1.0s, 2.0s, 3.0s, ...) instead of repeating.
     public func reserve() -> TimeInterval {
         refill()
-        if tokens >= 1 {
-            tokens -= 1
-            return 0
-        }
-        let deficit = 1 - tokens
-        tokens = 0
-        return deficit / refillPerSecond
+        tokens -= 1
+        guard tokens < 0 else { return 0 }
+        return -tokens / refillPerSecond
     }
 
     public func acquire() async {
