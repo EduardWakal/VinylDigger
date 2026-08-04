@@ -1,0 +1,30 @@
+name: Digger
+options:
+  bundleIdPrefix: de.schakal
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+packages:
+  DiggerKit:
+    path: DiggerKit
+targets:
+  Digger:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    dependencies:
+      - package: DiggerKit
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Digger
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: ""
+    settings:
+      base:
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"

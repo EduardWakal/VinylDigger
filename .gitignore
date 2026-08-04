@@ -4,3 +4,5 @@ build/
 DerivedData/
 .token
 .superpowers/
+.build/
+.swiftpm/
