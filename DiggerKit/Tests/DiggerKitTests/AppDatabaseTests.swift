@@ -11,7 +11,8 @@ final class AppDatabaseTests: XCTestCase {
         let db = try makeDatabase()
         let tables = try db.read { database in
             try String.fetchAll(database, sql: """
-                SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'grdb_%'
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'grdb_%'
                 ORDER BY name
                 """)
         }

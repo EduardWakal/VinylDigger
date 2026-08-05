@@ -68,7 +68,7 @@ public final class AppDatabase {
             try db.create(index: "release_label", on: "release", columns: ["labelID"])
 
             try db.create(table: "video") { t in
-                t.primaryKey("id", .integer)
+                t.autoIncrementedPrimaryKey("id")
                 t.column("releaseID", .integer).notNull().indexed()
                 t.column("youtubeID", .text).notNull()
                 t.column("title", .text)
@@ -78,7 +78,7 @@ public final class AppDatabase {
             }
 
             try db.create(table: "edge") { t in
-                t.primaryKey("id", .integer)
+                t.autoIncrementedPrimaryKey("id")
                 t.column("fromKind", .text).notNull()
                 t.column("fromID", .integer).notNull()
                 t.column("toKind", .text).notNull()
@@ -88,7 +88,7 @@ public final class AppDatabase {
             }
 
             try db.create(table: "decision") { t in
-                t.primaryKey("id", .integer)
+                t.autoIncrementedPrimaryKey("id")
                 t.column("releaseID", .integer).notNull().indexed()
                 t.column("kind", .text).notNull()
                 t.column("decidedAt", .datetime).notNull()
@@ -103,7 +103,7 @@ public final class AppDatabase {
             }
 
             try db.create(table: "outbox") { t in
-                t.primaryKey("id", .integer)
+                t.autoIncrementedPrimaryKey("id")
                 t.column("releaseID", .integer).notNull().unique()
                 t.column("attempts", .integer).notNull().defaults(to: 0)
                 t.column("lastError", .text)
