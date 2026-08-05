@@ -36,3 +36,35 @@ public enum DecisionKind: String, Codable, Equatable, Sendable {
         }
     }
 }
+
+public struct NodeID: Hashable, Sendable {
+    public let kind: NodeKind
+    public let id: Int
+
+    public init(kind: NodeKind, id: Int) {
+        self.kind = kind
+        self.id = id
+    }
+}
+
+public struct GraphEdge: Equatable, Sendable {
+    public let from: NodeID
+    public let to: NodeID
+    public let kind: EdgeKind
+
+    public init(from: NodeID, to: NodeID, kind: EdgeKind) {
+        self.from = from
+        self.to = to
+        self.kind = kind
+    }
+}
+
+public struct WeightAdjustment: Equatable, Sendable {
+    public let node: NodeID
+    public let delta: Double
+
+    public init(node: NodeID, delta: Double) {
+        self.node = node
+        self.delta = delta
+    }
+}
