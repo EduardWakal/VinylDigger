@@ -111,6 +111,12 @@ public final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v2") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "owned", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

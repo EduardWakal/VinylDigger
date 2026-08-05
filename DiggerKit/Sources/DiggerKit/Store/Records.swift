@@ -47,10 +47,13 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
     public var have: Int
     /// False until the expensive /releases/{id} lookup filled in want, have, styles and videos.
     public var hydrated: Bool
+    /// True when the release is already in the user's Discogs collection.
+    public var owned: Bool
 
     public init(
         id: Int, title: String, artistName: String, year: Int?, catno: String?,
-        labelID: Int?, styles: [String], want: Int, have: Int, hydrated: Bool
+        labelID: Int?, styles: [String], want: Int, have: Int, hydrated: Bool,
+        owned: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -62,6 +65,7 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
         self.want = want
         self.have = have
         self.hydrated = hydrated
+        self.owned = owned
     }
 }
 
