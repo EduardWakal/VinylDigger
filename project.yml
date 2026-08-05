@@ -12,6 +12,8 @@ targets:
     type: application
     platform: macOS
     sources:
+      # App/Resources rides along here; the JSON dumps land flat in
+      # Contents/Resources, which is where Bundle.main.url(forResource:) looks.
       - App
     dependencies:
       - package: DiggerKit
