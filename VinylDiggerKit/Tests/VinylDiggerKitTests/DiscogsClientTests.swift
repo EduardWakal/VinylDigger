@@ -1,5 +1,5 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class StubTransport: HTTPTransport, @unchecked Sendable {
     struct Reply {
@@ -46,7 +46,7 @@ final class DiscogsClientTests: XCTestCase {
             transport: transport,
             secrets: secrets ?? makeSecrets(),
             limiter: RateLimiter(capacity: 100, refillPerSecond: 100),
-            userAgent: "DiggerTests/1.0"
+            userAgent: "VinylDiggerTests/1.0"
         )
     }
 
@@ -59,7 +59,7 @@ final class DiscogsClientTests: XCTestCase {
 
         let request = transport.sentRequests[0]
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Discogs token=tok")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "DiggerTests/1.0")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "VinylDiggerTests/1.0")
         XCTAssertEqual(request.url?.path, "/artists/13320")
     }
 

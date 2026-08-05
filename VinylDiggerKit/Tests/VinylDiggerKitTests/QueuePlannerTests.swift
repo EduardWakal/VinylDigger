@@ -1,5 +1,5 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class QueuePlannerTests: XCTestCase {
     private func item(_ id: Int, label: Int?, score: Double) -> ScoredRelease {

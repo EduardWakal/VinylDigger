@@ -1,5 +1,5 @@
 import SwiftUI
-import DiggerKit
+import VinylDiggerKit
 
 struct QueueView: View {
     @EnvironmentObject private var environment: AppEnvironment

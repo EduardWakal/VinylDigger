@@ -1,8 +1,8 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class ScaffoldingTests: XCTestCase {
     func testPackageVersionIsExposed() {
-        XCTAssertEqual(DiggerKit.version, "0.1.0")
+        XCTAssertEqual(VinylDiggerKit.version, "0.1.0")
     }
 }

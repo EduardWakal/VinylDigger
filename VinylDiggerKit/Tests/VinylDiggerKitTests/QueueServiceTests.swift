@@ -1,6 +1,6 @@
 import XCTest
 import GRDB
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class QueueServiceTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_000_000)
@@ -14,7 +14,7 @@ final class QueueServiceTests: XCTestCase {
         let client = DiscogsClient(
             transport: transport, secrets: secrets,
             limiter: RateLimiter(capacity: 100, refillPerSecond: 100),
-            userAgent: "DiggerTests/1.0"
+            userAgent: "VinylDiggerTests/1.0"
         )
         let outbox = OutboxProcessor(database: db, writer: client, username: "schakal", now: { self.now })
         let service = QueueService(

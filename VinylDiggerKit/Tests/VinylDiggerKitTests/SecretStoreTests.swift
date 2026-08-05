@@ -1,8 +1,8 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class SecretStoreTests: XCTestCase {
-    private let service = "de.schakal.Digger.tests"
+    private let service = "de.schakal.VinylDigger.tests"
 
     override func tearDown() {
         let store = KeychainSecretStore(service: service)

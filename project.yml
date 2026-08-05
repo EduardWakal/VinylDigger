@@ -1,14 +1,14 @@
-name: Digger
+name: VinylDigger
 options:
   bundleIdPrefix: de.schakal
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
 packages:
-  DiggerKit:
-    path: DiggerKit
+  VinylDiggerKit:
+    path: VinylDiggerKit
 targets:
-  Digger:
+  VinylDigger:
     type: application
     platform: macOS
     sources:
@@ -16,11 +16,11 @@ targets:
       # Contents/Resources, which is where Bundle.main.url(forResource:) looks.
       - App
     dependencies:
-      - package: DiggerKit
+      - package: VinylDiggerKit
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Digger
+        CFBundleDisplayName: VinylDigger
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: ""
     settings:

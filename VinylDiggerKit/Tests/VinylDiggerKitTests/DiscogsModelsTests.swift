@@ -1,5 +1,5 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class DiscogsModelsTests: XCTestCase {
     func testDecodesArtistWithAliasesAndGroups() throws {

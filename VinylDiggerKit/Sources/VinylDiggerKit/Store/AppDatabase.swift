@@ -24,7 +24,7 @@ public final class AppDatabase {
 
     public static var defaultPath: String {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Digger/digger.sqlite").path
+        return base.appendingPathComponent("VinylDigger/vinyldigger.sqlite").path
     }
 
     public func write<T>(_ block: (Database) throws -> T) throws -> T {

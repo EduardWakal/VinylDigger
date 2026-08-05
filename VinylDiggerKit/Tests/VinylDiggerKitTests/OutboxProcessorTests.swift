@@ -1,6 +1,6 @@
 import XCTest
 import GRDB
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class RecordingWantlistWriter: WantlistWriter, @unchecked Sendable {
     private let lock = NSLock()

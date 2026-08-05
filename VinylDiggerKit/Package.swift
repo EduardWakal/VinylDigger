@@ -2,22 +2,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "DiggerKit",
+    name: "VinylDiggerKit",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "DiggerKit", targets: ["DiggerKit"])
+        .library(name: "VinylDiggerKit", targets: ["VinylDiggerKit"])
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0")
     ],
     targets: [
         .target(
-            name: "DiggerKit",
+            name: "VinylDiggerKit",
             dependencies: [.product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(
-            name: "DiggerKitTests",
-            dependencies: ["DiggerKit"],
+            name: "VinylDiggerKitTests",
+            dependencies: ["VinylDiggerKit"],
             resources: [.copy("Fixtures")]
         )
     ]

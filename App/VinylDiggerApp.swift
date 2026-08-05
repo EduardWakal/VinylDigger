@@ -1,8 +1,8 @@
 import SwiftUI
-import DiggerKit
+import VinylDiggerKit
 
 @main
-struct DiggerApp: App {
+struct VinylDiggerApp: App {
     @StateObject private var environment = AppEnvironment()
 
     var body: some Scene {

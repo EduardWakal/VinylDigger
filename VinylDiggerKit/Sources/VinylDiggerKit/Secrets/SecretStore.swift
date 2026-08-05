@@ -20,7 +20,7 @@ public protocol SecretStore: Sendable {
 public struct KeychainSecretStore: SecretStore {
     private let service: String
 
-    public init(service: String = "de.schakal.Digger") {
+    public init(service: String = "de.schakal.VinylDigger") {
         self.service = service
     }
 

@@ -1,5 +1,5 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class WeightPropagatorTests: XCTestCase {
     private let finlow = NodeID(kind: .artist, id: 13320)

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 import GRDB
-import DiggerKit
+import VinylDiggerKit
 
 @MainActor
 final class AppEnvironment: ObservableObject {

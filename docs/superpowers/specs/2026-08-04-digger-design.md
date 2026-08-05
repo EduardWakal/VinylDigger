@@ -1,4 +1,4 @@
-# Digger — Design
+# VinylDigger — Design
 
 **Datum:** 2026-08-04
 **Status:** freigegeben, bereit für Implementierungsplan
@@ -40,10 +40,10 @@ Eine macOS-App, die diese Schleife trägt:
 ## Architektur
 
 Native SwiftUI-App, macOS 14+, XcodeGen-Projekt analog PaceForge.
-Bundle-ID `de.schakal.Digger`, Projektwurzel `~/Developer/Digger`.
+Bundle-ID `de.schakal.VinylDigger`, Projektwurzel `~/Developer/Digger`.
 
 ```
-Digger.app
+VinylDigger.app
 ├── App/                  SwiftUI, dünn — nur Darstellung und Eingabe
 │   ├── QueueView         Hauptschleife: Karte, Transport, ✗ ↓ ♥
 │   ├── PlayerController  WKWebView + YouTube IFrame Player API
@@ -51,7 +51,7 @@ Digger.app
 │   ├── HistoryView       Entscheidungen ansehen, rückgängig machen
 │   └── SettingsView      Token, Filter (Jahr, Style, Want-Schwelle)
 │
-└── DiggerKit/            Swift Package — die gesamte Logik
+└── VinylDiggerKit/            Swift Package — die gesamte Logik
     ├── DiscogsAPI        URLSession + Codable, Token-Bucket, Cache, Retry
     ├── Store             GRDB/SQLite — Persistenz, sonst nichts
     ├── GraphEngine       Expansion + Scoring — kein Netz, keine DB, kein UI
@@ -73,8 +73,8 @@ keine Bewertungslogik.
 
 | Was | Wo |
 |---|---|
-| Datenbank | `~/Library/Application Support/Digger/digger.sqlite` |
-| API-Cache | `~/Library/Caches/de.schakal.Digger/` |
+| Datenbank | `~/Library/Application Support/VinylDigger/vinyldigger.sqlite` |
+| API-Cache | `~/Library/Caches/de.schakal.VinylDigger/` |
 | Personal Access Token | Keychain |
 
 Der Token wird nie in der Datenbank, nie in einer Konfigurationsdatei und nie im

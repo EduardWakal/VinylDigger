@@ -1,6 +1,6 @@
 import XCTest
 import GRDB
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class BootstrapImporterTests: XCTestCase {
     private func runImport() throws -> (AppDatabase, BootstrapSummary) {

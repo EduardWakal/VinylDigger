@@ -1,5 +1,5 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class ScorerTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_000_000)

@@ -1,5 +1,5 @@
 import XCTest
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class RateLimiterTests: XCTestCase {
     /// A clock the test advances by hand, so no test ever sleeps in real time.

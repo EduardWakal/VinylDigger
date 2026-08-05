@@ -22,7 +22,7 @@ public actor DiscogsClient {
         transport: HTTPTransport,
         secrets: SecretStore,
         limiter: RateLimiter,
-        userAgent: String = "Digger/0.1 +https://github.com/schakal/digger"
+        userAgent: String = "VinylDigger/0.1 +https://github.com/EduardWakal/VinylDigger"
     ) {
         self.transport = transport
         self.secrets = secrets

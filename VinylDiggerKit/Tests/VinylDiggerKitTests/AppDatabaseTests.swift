@@ -1,6 +1,6 @@
 import XCTest
 import GRDB
-@testable import DiggerKit
+@testable import VinylDiggerKit
 
 final class AppDatabaseTests: XCTestCase {
     private func makeDatabase() throws -> AppDatabase {
