@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import GRDB
 import DiggerKit
 
 @MainActor
@@ -10,7 +11,7 @@ final class AppEnvironment: ObservableObject {
 
     let player = PlayerController()
 
-    private var database: AppDatabase?
+    private(set) var database: AppDatabase?
     private var service: QueueService?
 
     var currentCard: QueueCard? {
@@ -74,6 +75,47 @@ final class AppEnvironment: ObservableObject {
         } catch {
             status = "Fehler: \(error)"
         }
+    }
+
+    func reload() async {
+        guard let service else { return }
+        do {
+            cards = try service.rebuildQueue(limit: 50)
+            currentIndex = 0
+            loadCurrentCard()
+            status = "\(cards.count) in der Queue"
+        } catch {
+            status = "Fehler: \(error)"
+        }
+    }
+
+    func undoLastDecision() async {
+        guard let database else { return }
+        do {
+            try database.write { db in
+                if let last = try DecisionRecord.order(Column("decidedAt").desc).fetchOne(db) {
+                    _ = try last.delete(db)
+                }
+            }
+            await reload()
+        } catch {
+            status = "Fehler: \(error)"
+        }
+    }
+
+    func nodeWeights() -> (artists: [ArtistRecord], labels: [LabelRecord]) {
+        guard let database else { return ([], []) }
+        let artists = (try? database.read { try ArtistRecord.order(Column("weight").desc).limit(50).fetchAll($0) }) ?? []
+        let labels = (try? database.read { try LabelRecord.order(Column("weight").desc).limit(50).fetchAll($0) }) ?? []
+        return (artists, labels)
+    }
+
+    func recentDecisions() -> [(decision: DecisionRecord, release: ReleaseRecord?)] {
+        guard let database else { return [] }
+        return (try? database.read { db in
+            let decisions = try DecisionRecord.order(Column("decidedAt").desc).limit(100).fetchAll(db)
+            return try decisions.map { ($0, try ReleaseRecord.fetchOne(db, key: $0.releaseID)) }
+        }) ?? []
     }
 
     private func loadCurrentCard() {

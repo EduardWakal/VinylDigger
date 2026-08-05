@@ -11,5 +11,25 @@ struct DiggerApp: App {
                 .environmentObject(environment)
         }
         .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(after: .toolbar) {
+                Button("Queue neu berechnen") {
+                    Task { await environment.reload() }
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+            }
+        }
+
+        Window("Seeds", id: "seeds") {
+            SeedsView().environmentObject(environment)
+        }
+
+        Window("Verlauf", id: "history") {
+            HistoryView().environmentObject(environment)
+        }
+
+        Settings {
+            SettingsView().environmentObject(environment)
+        }
     }
 }
