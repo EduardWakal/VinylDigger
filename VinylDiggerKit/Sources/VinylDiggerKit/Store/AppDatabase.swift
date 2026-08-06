@@ -117,6 +117,23 @@ public final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "rating", .double).notNull().defaults(to: 0)
+                t.add(column: "ratingCount", .integer).notNull().defaults(to: 0)
+            }
+        }
+
+        migrator.registerMigration("v4") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "coverURL", .text)
+            }
+            try db.alter(table: "video") { t in
+                t.add(column: "duration", .integer)
+                t.add(column: "trackPosition", .text)
+            }
+        }
+
         return migrator
     }
 }

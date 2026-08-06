@@ -46,6 +46,84 @@ final class AppDatabaseTests: XCTestCase {
         XCTAssertTrue(loaded?.hydrated == true)
     }
 
+    func testReleaseRoundTripsWithRating() throws {
+        let db = try makeDatabase()
+        try db.write { database in
+            var record = ReleaseRecord(
+                id: 2831, title: "Fresh Connections", artistName: "Inland Knights",
+                year: 1999, catno: "VIS035", labelID: 15, styles: [],
+                want: 582, have: 517, hydrated: true, rating: 4.22, ratingCount: 79
+            )
+            try record.save(database)
+        }
+        let loaded = try db.read { try ReleaseRecord.fetchOne($0, key: 2831) }
+        XCTAssertEqual(loaded?.rating ?? 0, 4.22, accuracy: 0.001)
+        XCTAssertEqual(loaded?.ratingCount, 79)
+    }
+
+    func testRatingDefaultsToZeroForExistingRows() throws {
+        let db = try makeDatabase()
+        try db.write { database in
+            var record = ReleaseRecord(
+                id: 7, title: "X", artistName: "Y", year: nil, catno: nil,
+                labelID: nil, styles: [], want: 0, have: 0, hydrated: false
+            )
+            try record.save(database)
+        }
+        let loaded = try db.read { try ReleaseRecord.fetchOne($0, key: 7) }
+        XCTAssertEqual(loaded?.rating, 0)
+        XCTAssertEqual(loaded?.ratingCount, 0)
+    }
+
+    func testReleaseRoundTripsWithCoverURL() throws {
+        let db = try makeDatabase()
+        try db.write { database in
+            var record = ReleaseRecord(
+                id: 2831, title: "Fresh Connections", artistName: "Inland Knights",
+                year: nil, catno: nil, labelID: nil, styles: [], want: 0, have: 0,
+                hydrated: true, coverURL: "https://i.discogs.com/front.jpeg"
+            )
+            try record.save(database)
+        }
+        let loaded = try db.read { try ReleaseRecord.fetchOne($0, key: 2831) }
+        XCTAssertEqual(loaded?.coverURL, "https://i.discogs.com/front.jpeg")
+    }
+
+    func testVideoRoundTripsWithDurationAndTrackPosition() throws {
+        let db = try makeDatabase()
+        try db.write { database in
+            var record = VideoRecord(
+                id: nil, releaseID: 2831, youtubeID: "abc", title: "Mr G - Toi Toi",
+                position: 0, unavailable: false, duration: 451, trackPosition: "B1"
+            )
+            try record.insert(database)
+        }
+        let loaded = try db.read { try VideoRecord.fetchOne($0, key: 1) }
+        XCTAssertEqual(loaded?.duration, 451)
+        XCTAssertEqual(loaded?.trackPosition, "B1")
+        XCTAssertEqual(loaded?.position, 0)
+    }
+
+    func testNewColumnsDefaultToNil() throws {
+        let db = try makeDatabase()
+        try db.write { database in
+            var release = ReleaseRecord(
+                id: 7, title: "X", artistName: "Y", year: nil, catno: nil,
+                labelID: nil, styles: [], want: 0, have: 0, hydrated: false
+            )
+            try release.save(database)
+            var video = VideoRecord(
+                id: nil, releaseID: 7, youtubeID: "abc", title: nil,
+                position: 0, unavailable: false
+            )
+            try video.insert(database)
+        }
+        XCTAssertNil(try db.read { try ReleaseRecord.fetchOne($0, key: 7) }?.coverURL)
+        let video = try db.read { try VideoRecord.filter(Column("releaseID") == 7).fetchOne($0) }
+        XCTAssertNil(video?.duration)
+        XCTAssertNil(video?.trackPosition)
+    }
+
     func testEdgeRoundTrips() throws {
         let db = try makeDatabase()
         try db.write { database in

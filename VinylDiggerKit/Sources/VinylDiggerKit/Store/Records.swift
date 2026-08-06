@@ -49,11 +49,18 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
     public var hydrated: Bool
     /// True when the release is already in the user's Discogs collection.
     public var owned: Bool
+    /// Discogs community rating, 0–5. Zero also means "not fetched yet"; use
+    /// `ratingCount` to tell an unrated release from an unknown one.
+    public var rating: Double
+    public var ratingCount: Int
+    /// Sleeve front from Discogs; nil until the release has been hydrated.
+    public var coverURL: String?
 
     public init(
         id: Int, title: String, artistName: String, year: Int?, catno: String?,
         labelID: Int?, styles: [String], want: Int, have: Int, hydrated: Bool,
-        owned: Bool = false
+        owned: Bool = false, rating: Double = 0, ratingCount: Int = 0,
+        coverURL: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -66,6 +73,9 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
         self.have = have
         self.hydrated = hydrated
         self.owned = owned
+        self.rating = rating
+        self.ratingCount = ratingCount
+        self.coverURL = coverURL
     }
 }
 
@@ -78,14 +88,25 @@ public struct VideoRecord: Codable, FetchableRecord, MutablePersistableRecord, E
     public var title: String?
     public var position: Int
     public var unavailable: Bool
+    /// Length in seconds from Discogs; the tracklist rarely carries one.
+    public var duration: Int?
+    /// Discogs sleeve position such as "A1" — unrelated to `position`, which is
+    /// this video's order inside the release.
+    public var trackPosition: String?
 
-    public init(id: Int64?, releaseID: Int, youtubeID: String, title: String?, position: Int, unavailable: Bool) {
+    public init(
+        id: Int64?, releaseID: Int, youtubeID: String, title: String?,
+        position: Int, unavailable: Bool, duration: Int? = nil,
+        trackPosition: String? = nil
+    ) {
         self.id = id
         self.releaseID = releaseID
         self.youtubeID = youtubeID
         self.title = title
         self.position = position
         self.unavailable = unavailable
+        self.duration = duration
+        self.trackPosition = trackPosition
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
