@@ -31,6 +31,10 @@ final class PlayerController: NSObject, ObservableObject {
     /// knob does not fight the updates still arriving from the page.
     var isScrubbing = false
 
+    /// Whether the user wants sound at all. Pause means pause — a new record is
+    /// cued but not started until play is pressed again.
+    private var wantsPlayback = true
+
     private var cursor = PlaylistCursor(videoIDs: [])
 
     /// The page needs a real origin of its own. Hosting it on `https://www.youtube.com`
@@ -66,6 +70,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func togglePlayPause() {
+        wantsPlayback = !isPlaying
         isPlaying ? evaluate("player.pauseVideo()") : evaluate("player.playVideo()")
     }
 
@@ -84,8 +89,10 @@ final class PlayerController: NSObject, ObservableObject {
         seek(to: 0)
     }
 
+    /// Picking a track by hand is an explicit request for sound.
     func play(index: Int) {
         guard let id = cursor.select(index) else { return }
+        wantsPlayback = true
         startVideo(id)
     }
 
@@ -121,7 +128,9 @@ final class PlayerController: NSObject, ObservableObject {
         videoUnavailable = false
         position = 0
         duration = 0
-        evaluate("loadVideo('\(id)')")
+        // Cueing loads the video without starting it, so a paused player stays
+        // paused when the record changes.
+        evaluate("\(wantsPlayback ? "loadVideo" : "cueVideo")('\(id)')")
     }
 
     private func handleState(_ state: Int, time: TimeInterval, length: TimeInterval) {
@@ -137,6 +146,8 @@ final class PlayerController: NSObject, ObservableObject {
             isPlaying = false
             return
         }
+        // Reaching the end of a track while playing means playback should carry on.
+        wantsPlayback = true
         startVideo(id)
     }
 
@@ -207,6 +218,11 @@ final class PlayerController: NSObject, ObservableObject {
 
           function loadVideo(id) {
             if (player && player.loadVideoById) { player.loadVideoById(id); }
+            else { pending = id; }
+          }
+
+          function cueVideo(id) {
+            if (player && player.cueVideoById) { player.cueVideoById(id); }
             else { pending = id; }
           }
         </script>

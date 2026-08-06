@@ -447,12 +447,18 @@ public actor QueueService {
             try db.execute(
                 sql: """
                     UPDATE release SET rating = ?, ratingCount = ?, want = ?, have = ?,
-                    coverURL = ?, tracklist = ?, detailFetched = 1 WHERE id = ?
+                    coverURL = ?, title = ?, artistName = ?, year = ?,
+                    tracklist = ?, detailFetched = 1 WHERE id = ?
                     """,
                 arguments: [
                     release.community.rating.average, release.community.rating.count,
                     release.community.want, release.community.have,
                     release.coverURL,
+                    // The fetch is the authority. Rows filed under a master id carry a
+                    // title that belongs to a different record; this corrects them.
+                    release.title,
+                    release.artists.first?.name ?? cached?.artistName ?? "",
+                    release.year,
                     try JSONEncoder().encode(
                         release.tracklist.map { ReleaseTrack(position: $0.position, title: $0.title) }
                     ),
@@ -533,9 +539,12 @@ public actor QueueService {
             let page = try await client.artistReleases(id: artist.id, page: 1)
             try database.write { db in
                 for summary in page.items {
-                    guard try ReleaseRecord.fetchOne(db, key: summary.id) == nil else { continue }
+                    // Master entries carry a master id; storing it would file a
+                    // different record under this title.
+                    guard let releaseID = summary.releaseID else { continue }
+                    guard try ReleaseRecord.fetchOne(db, key: releaseID) == nil else { continue }
                     var record = ReleaseRecord(
-                        id: summary.id, title: summary.title,
+                        id: releaseID, title: summary.title,
                         artistName: summary.artist ?? artist.name,
                         year: summary.year, catno: summary.catno, labelID: nil,
                         styles: [], want: 0, have: 0, hydrated: false

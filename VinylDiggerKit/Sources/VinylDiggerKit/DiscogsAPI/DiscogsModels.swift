@@ -171,8 +171,25 @@ public struct DiscogsReleaseSummary: Codable, Equatable, Sendable {
     public let catno: String?
     public let artist: String?
     public let role: String?
+    /// "release" or "master". An artist's release list mixes both.
+    public let type: String?
+    /// Masters carry the id of the pressing to actually fetch.
+    public let mainRelease: Int?
 
-    private enum CodingKeys: String, CodingKey { case id, title, year, label, catno, artist, role }
+    /// The id that `/releases/{id}` understands.
+    ///
+    /// A master id is not a release id — fetching one returns a wholly different
+    /// record, with the wrong title and no videos. A master without a main release
+    /// yields nil, because a wrong record is worse than none.
+    public var releaseID: Int? {
+        guard type == "master" else { return id }
+        return mainRelease
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, year, label, catno, artist, role, type
+        case mainRelease = "main_release"
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -183,9 +200,14 @@ public struct DiscogsReleaseSummary: Codable, Equatable, Sendable {
         catno = try c.decodeIfPresent(String.self, forKey: .catno)
         artist = try c.decodeIfPresent(String.self, forKey: .artist)
         role = try c.decodeIfPresent(String.self, forKey: .role)
+        type = try c.decodeIfPresent(String.self, forKey: .type)
+        mainRelease = try c.decodeIfPresent(Int.self, forKey: .mainRelease)
     }
 
-    public init(id: Int, title: String, year: Int?, label: String?, catno: String?, artist: String?, role: String?) {
+    public init(
+        id: Int, title: String, year: Int?, label: String?, catno: String?,
+        artist: String?, role: String?, type: String? = nil, mainRelease: Int? = nil
+    ) {
         self.id = id
         self.title = title
         self.year = year
@@ -193,6 +215,8 @@ public struct DiscogsReleaseSummary: Codable, Equatable, Sendable {
         self.catno = catno
         self.artist = artist
         self.role = role
+        self.type = type
+        self.mainRelease = mainRelease
     }
 }
 

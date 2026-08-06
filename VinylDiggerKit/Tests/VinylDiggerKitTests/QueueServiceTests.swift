@@ -141,6 +141,32 @@ final class QueueServiceTests: XCTestCase {
         XCTAssertEqual(videos[0].duration, 451)
     }
 
+    func testHydrateReleaseCorrectsAWrongTitle() async throws {
+        // What a mis-filed master id leaves behind: our row claims one record, the
+        // id actually belongs to another.
+        let body = Data(#"""
+        {"id": 3945572, "title": "Weekly Magic Tape #79", "year": 2012,
+         "artists": [{"id": 7, "name": "Diverse"}], "labels": [], "community": {},
+         "videos": [], "tracklist": []}
+        """#.utf8)
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: body)])
+        )
+        try db.write { database in
+            var wrong = ReleaseRecord(
+                id: 3945572, title: "Avoidance", artistName: "Snad", year: 2021,
+                catno: nil, labelID: nil, styles: [], want: 0, have: 0, hydrated: false
+            )
+            try wrong.save(database)
+        }
+
+        let stored = try await service.hydrateRelease(releaseID: 3945572)
+
+        XCTAssertEqual(stored.title, "Weekly Magic Tape #79")
+        XCTAssertEqual(stored.artistName, "Diverse")
+        XCTAssertEqual(stored.year, 2012)
+    }
+
     func testHydrateReleaseIsSkippedWhenAlreadyKnown() async throws {
         let transport = StubTransport(replies: [])
         let (service, db) = try makeService(transport: transport)

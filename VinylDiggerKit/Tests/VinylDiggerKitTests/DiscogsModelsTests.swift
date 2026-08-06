@@ -103,3 +103,38 @@ final class DiscogsModelsTests: XCTestCase {
         XCTAssertEqual(release.community.want, 0)
     }
 }
+
+final class ReleaseSummaryIdentityTests: XCTestCase {
+    func testAMasterEntryReportsItsMainRelease() throws {
+        let json = Data(#"""
+        {"type": "master", "id": 75951, "main_release": 43321, "title": "Limitations EP"}
+        """#.utf8)
+        let summary = try DiscogsJSON.decoder.decode(DiscogsReleaseSummary.self, from: json)
+
+        XCTAssertEqual(
+            summary.releaseID, 43321,
+            "a master id is not a release id — fetching it returns a different record"
+        )
+    }
+
+    func testAPlainReleaseEntryKeepsItsOwnID() throws {
+        let json = Data(#"{"type": "release", "id": 16100, "title": "Sheltered EP"}"#.utf8)
+        let summary = try DiscogsJSON.decoder.decode(DiscogsReleaseSummary.self, from: json)
+
+        XCTAssertEqual(summary.releaseID, 16100)
+    }
+
+    func testAMasterWithoutAMainReleaseIsUnusable() throws {
+        let json = Data(#"{"type": "master", "id": 75951, "title": "Limitations EP"}"#.utf8)
+        let summary = try DiscogsJSON.decoder.decode(DiscogsReleaseSummary.self, from: json)
+
+        XCTAssertNil(summary.releaseID, "better no record than the wrong one")
+    }
+
+    func testAnEntryWithoutATypeIsTreatedAsARelease() throws {
+        let json = Data(#"{"id": 16100, "title": "Sheltered EP"}"#.utf8)
+        let summary = try DiscogsJSON.decoder.decode(DiscogsReleaseSummary.self, from: json)
+
+        XCTAssertEqual(summary.releaseID, 16100)
+    }
+}

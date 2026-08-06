@@ -131,6 +131,12 @@ struct QueueView: View {
                             )
                         }
                         Label("\(card.want)", systemImage: "heart")
+                        Link(
+                            "Discogs",
+                            destination: URL(
+                                string: "https://www.discogs.com/release/\(card.releaseID)"
+                            )!
+                        )
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -138,9 +144,13 @@ struct QueueView: View {
             }
 
             if card.tracks.isEmpty {
-                Label("kein Preview", systemImage: "speaker.slash")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("kein Preview", systemImage: "speaker.slash")
+                    Text("Discogs führt für diese Pressung kein Video — bei einer anderen Pressung derselben Platte kann eines liegen.")
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.caption)
+                .foregroundStyle(.orange)
             } else {
                 TrackList(
                     releaseID: card.releaseID,
