@@ -58,6 +58,44 @@ public actor DiscogsClient {
         return envelope.results.map { DiscogsNameRef(id: $0.id, name: $0.title) }
     }
 
+    /// Looks a hand-typed dig line up in the Discogs catalogue. Vinyl only — the
+    /// list came off records, and format noise costs review time.
+    public func searchReleases(artist: String?, title: String) async throws -> [DiscogsReleaseSummary] {
+        struct Hit: Codable {
+            let id: Int
+            let title: String
+            let year: String?
+            let label: [String]?
+            let catno: String?
+        }
+        struct Envelope: Codable { let results: [Hit] }
+
+        var query = [
+            URLQueryItem(name: "release_title", value: title),
+            URLQueryItem(name: "type", value: "release"),
+            URLQueryItem(name: "format", value: "Vinyl"),
+            URLQueryItem(name: "per_page", value: "5")
+        ]
+        if let artist, !artist.isEmpty {
+            query.append(URLQueryItem(name: "artist", value: artist))
+        }
+
+        let envelope: Envelope = try await fetch(path: "/database/search", query: query)
+        return envelope.results.map { hit in
+            DiscogsReleaseSummary(
+                id: hit.id,
+                // Search returns "Artist - Title" in one string; keep it whole rather
+                // than splitting it a second time and risking a wrong artist.
+                title: hit.title,
+                year: hit.year.flatMap(Int.init),
+                label: hit.label?.first,
+                catno: hit.catno,
+                artist: nil,
+                role: nil
+            )
+        }
+    }
+
     public func collectionReleaseIDs(username: String) async throws -> [Int] {
         try await allReleaseIDs(path: "/users/\(username)/collection/folders/0/releases")
     }
