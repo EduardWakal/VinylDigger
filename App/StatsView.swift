@@ -130,17 +130,19 @@ private struct WeightRow: View {
                 .font(.system(.caption, design: .monospaced))
                 .onSubmit { onChange(Double(text.replacingOccurrences(of: ",", with: "."))) }
 
-            if manual != nil {
-                Button {
-                    text = ""
-                    onChange(nil)
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                .buttonStyle(.borderless)
-                .help("Wieder dem Graph überlassen")
+            Button {
+                text = ""
+                onChange(nil)
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
             }
+            .buttonStyle(.borderless)
+            .help("Wieder dem Graph überlassen")
+            .opacity(manual == nil ? 0 : 1)
+            .disabled(manual == nil)
         }
+        // Keeps the field and the reset button clear of the scroll bar.
+        .padding(.trailing, 12)
         .onAppear { text = manual.map { String(format: "%.2f", $0) } ?? "" }
     }
 }

@@ -149,30 +149,31 @@ private struct TrackList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
-                Button {
-                    player.play(index: index)
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(index == player.currentIndex ? "\u{25B8}" : " ")
-                            .font(.system(.caption, design: .monospaced))
-                        Text(track.position ?? "\u{2014}")
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(width: 28, alignment: .leading)
-                        Text(track.title ?? "ohne Titel")
-                            .lineLimit(1)
-                        Spacer()
-                        if let duration = track.duration {
-                            Text(formatSeconds(TimeInterval(duration)))
+                HStack(spacing: 10) {
+                    Button {
+                        player.play(index: index)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(index == player.currentIndex ? "\u{25B8}" : " ")
                                 .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                            Text(track.position ?? "\u{2014}")
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 28, alignment: .leading)
+                            Text(track.title ?? "ohne Titel")
+                                .lineLimit(1)
+                            Spacer(minLength: 12)
+                            if let duration = track.duration {
+                                Text(formatSeconds(TimeInterval(duration)))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .font(.callout)
-                .fontWeight(index == player.currentIndex ? .semibold : .regular)
-                .overlay(alignment: .trailing) {
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .fontWeight(index == player.currentIndex ? .semibold : .regular)
+
                     Button {
                         onToggleLike(track.youtubeID)
                     } label: {
@@ -180,7 +181,6 @@ private struct TrackList: View {
                             .foregroundStyle(track.liked ? AnyShapeStyle(.yellow) : AnyShapeStyle(.tertiary))
                     }
                     .buttonStyle(.borderless)
-                    .offset(x: 22)
                     .help(track.liked ? "Markierung entfernen" : "Track markieren")
                 }
             }
