@@ -220,3 +220,48 @@ final class AppDatabaseTests: XCTestCase {
         XCTAssertNoThrow(try AppDatabase(path: path))
     }
 }
+
+final class VideoBackfillMigrationTests: XCTestCase {
+    func testV9ClearsDetailFetchedForReleasesWithoutVideos() throws {
+        let db = try AppDatabase.inMemory()
+        try db.write { database in
+            // Fetched under the old code, which never inserted videos.
+            var barren = ReleaseRecord(
+                id: 1, title: "Ohne", artistName: "A", year: nil, catno: nil, labelID: nil,
+                styles: [], want: 0, have: 0, hydrated: false, detailFetched: true
+            )
+            try barren.save(database)
+
+            var withVideo = ReleaseRecord(
+                id: 2, title: "Mit", artistName: "B", year: nil, catno: nil, labelID: nil,
+                styles: [], want: 0, have: 0, hydrated: false, detailFetched: true
+            )
+            try withVideo.save(database)
+            var video = VideoRecord(
+                id: nil, releaseID: 2, youtubeID: "abc", title: nil,
+                position: 0, unavailable: false
+            )
+            try video.insert(database)
+        }
+
+        // The migration already ran, so apply the same statement it carries.
+        try db.write { database in
+            try database.execute(sql: """
+                UPDATE release SET detailFetched = 0
+                WHERE detailFetched = 1
+                  AND NOT EXISTS (SELECT 1 FROM video WHERE video.releaseID = release.id)
+                """)
+        }
+
+        XCTAssertEqual(try db.read { try ReleaseRecord.fetchOne($0, key: 1) }?.detailFetched, false)
+        XCTAssertEqual(try db.read { try ReleaseRecord.fetchOne($0, key: 2) }?.detailFetched, true)
+    }
+
+    func testV9IsRegistered() throws {
+        let db = try AppDatabase.inMemory()
+        let applied = try db.read { database in
+            try String.fetchAll(database, sql: "SELECT identifier FROM grdb_migrations")
+        }
+        XCTAssertTrue(applied.contains("v9"))
+    }
+}

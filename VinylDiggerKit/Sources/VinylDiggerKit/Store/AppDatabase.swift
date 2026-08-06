@@ -168,6 +168,17 @@ public final class AppDatabase {
             }
         }
 
+        // hydrateRelease used to only UPDATE video rows, never insert them, so every
+        // release the graph turned up stayed without a preview. Clearing the marker
+        // lets those releases be fetched once more, this time keeping their videos.
+        migrator.registerMigration("v9") { db in
+            try db.execute(sql: """
+                UPDATE release SET detailFetched = 0
+                WHERE detailFetched = 1
+                  AND NOT EXISTS (SELECT 1 FROM video WHERE video.releaseID = release.id)
+                """)
+        }
+
         return migrator
     }
 }

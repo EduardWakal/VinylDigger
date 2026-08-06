@@ -94,6 +94,53 @@ final class QueueServiceTests: XCTestCase {
         XCTAssertEqual(video?.trackPosition, "B1")
     }
 
+    func testHydrateReleaseInsertsVideosThatDoNotExistYet() async throws {
+        let body = Data(#"""
+        {"id": 7000, "title": "Expanded EP", "labels": [], "artists": [],
+         "community": {"want": 5, "have": 2, "rating": {"average": 4.0, "count": 3}},
+         "tracklist": [{"position": "A1", "title": "First"}, {"position": "B1", "title": "Second"}],
+         "videos": [{"uri": "https://youtu.be/aaa", "title": "Artist - First", "duration": 300},
+                    {"uri": "https://youtu.be/bbb", "title": "Artist - Second", "duration": 240}]}
+        """#.utf8)
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: body)])
+        )
+        // A release the graph expansion added: no videos of its own.
+        try db.write { database in
+            var record = ReleaseRecord(
+                id: 7000, title: "Expanded EP", artistName: "Artist", year: nil, catno: nil,
+                labelID: nil, styles: [], want: 0, have: 0, hydrated: false
+            )
+            try record.save(database)
+        }
+
+        _ = try await service.hydrateRelease(releaseID: 7000)
+
+        let videos = try db.read {
+            try VideoRecord.filter(Column("releaseID") == 7000).order(Column("position")).fetchAll($0)
+        }
+        XCTAssertEqual(videos.count, 2)
+        XCTAssertEqual(videos.map(\.youtubeID), ["aaa", "bbb"])
+        XCTAssertEqual(videos[0].trackPosition, "A1")
+        XCTAssertEqual(videos[0].duration, 300)
+        XCTAssertEqual(videos[1].trackPosition, "B1")
+    }
+
+    func testHydrateReleaseDoesNotDuplicateExistingVideos() async throws {
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: releaseBody)])
+        )
+        try seedGraph(db)
+
+        _ = try await service.hydrateRelease(releaseID: 2831)
+
+        let videos = try db.read {
+            try VideoRecord.filter(Column("releaseID") == 2831).fetchAll($0)
+        }
+        XCTAssertEqual(videos.count, 1, "the seeded video must be updated, not duplicated")
+        XCTAssertEqual(videos[0].duration, 451)
+    }
+
     func testHydrateReleaseIsSkippedWhenAlreadyKnown() async throws {
         let transport = StubTransport(replies: [])
         let (service, db) = try makeService(transport: transport)

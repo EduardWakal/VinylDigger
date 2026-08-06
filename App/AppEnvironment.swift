@@ -108,6 +108,23 @@ final class AppEnvironment: ObservableObject {
         }
     }
 
+    /// Steps through the queue without judging anything — the decision keys are
+    /// separate, so a record can be revisited.
+    func goBack() {
+        guard currentIndex > 0 else { return }
+        currentIndex -= 1
+        loadCurrentCard()
+    }
+
+    func goForward() {
+        guard currentIndex + 1 < cards.count else { return }
+        currentIndex += 1
+        loadCurrentCard()
+    }
+
+    var canGoBack: Bool { currentIndex > 0 }
+    var canGoForward: Bool { currentIndex + 1 < cards.count }
+
     func reload() async {
         guard let service else { return }
         do {

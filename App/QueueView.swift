@@ -52,7 +52,25 @@ struct QueueView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 10) {
+            Button {
+                environment.goBack()
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [])
+            .disabled(!environment.canGoBack)
+            .help("vorige Platte")
+
+            Button {
+                environment.goForward()
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [])
+            .disabled(!environment.canGoForward)
+            .help("nächste Platte")
+
             Text("\(environment.currentIndex + 1) / \(max(environment.cards.count, 1))")
                 .font(.system(.caption, design: .monospaced))
             Spacer()
@@ -123,15 +141,15 @@ struct QueueView: View {
     private var controls: some View {
         HStack(spacing: 12) {
             Button("✗ weg") { Task { await environment.decide(.discard) } }
-                .keyboardShortcut(.leftArrow, modifiers: [])
+                .keyboardShortcut(.leftArrow, modifiers: [.command])
 
             Button("↓ später") { Task { await environment.decide(.later) } }
-                .keyboardShortcut(.downArrow, modifiers: [])
+                .keyboardShortcut(.downArrow, modifiers: [.command])
 
             Spacer()
 
             Button("♥ Wantlist") { love() }
-                .keyboardShortcut(.rightArrow, modifiers: [])
+                .keyboardShortcut(.rightArrow, modifiers: [.command])
                 .buttonStyle(.borderedProminent)
         }
         .disabled(environment.currentCard == nil)

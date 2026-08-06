@@ -320,9 +320,17 @@ public actor QueueService {
                 ]
             )
 
+            // Releases the graph turned up carry no videos of their own — only the
+            // bootstrap dumps brought any. Without inserting here they would stay
+            // unplayable forever even though Discogs lists the videos.
+            var slot = try Int.fetchOne(
+                db, sql: "SELECT COALESCE(MAX(position) + 1, 0) FROM video WHERE releaseID = ?",
+                arguments: [releaseID]
+            ) ?? 0
+
             for (index, video) in release.videos.enumerated() {
                 guard let youtubeID = video.youtubeID else { continue }
-                try db.execute(
+                let updated = try db.execute(
                     sql: """
                         UPDATE video SET title = ?, duration = ?, trackPosition = ?
                         WHERE releaseID = ? AND youtubeID = ?
@@ -332,6 +340,16 @@ public actor QueueService {
                         releaseID, youtubeID
                     ]
                 )
+                _ = updated
+                guard db.changesCount == 0 else { continue }
+
+                var record = VideoRecord(
+                    id: nil, releaseID: releaseID, youtubeID: youtubeID,
+                    title: video.title, position: slot, unavailable: false,
+                    duration: video.duration, trackPosition: positions[index]
+                )
+                try record.insert(db)
+                slot += 1
             }
 
             guard let updated = try ReleaseRecord.fetchOne(db, key: releaseID) else {
