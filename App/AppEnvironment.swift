@@ -18,6 +18,7 @@ final class AppEnvironment: ObservableObject {
 
     private(set) var database: AppDatabase?
     private var service: QueueService?
+    private var client: DiscogsClient?
 
     var currentCard: QueueCard? {
         cards.indices.contains(currentIndex) ? cards[currentIndex] : nil
@@ -49,6 +50,7 @@ final class AppEnvironment: ObservableObject {
                 database: database, client: client, outbox: outbox, username: username
             )
             self.service = service
+            self.client = client
 
             try await bootstrapIfEmpty(database)
 
@@ -103,6 +105,74 @@ final class AppEnvironment: ObservableObject {
                 }
             }
             await reload()
+        } catch {
+            status = "Fehler: \(error)"
+        }
+    }
+
+    // MARK: - Library
+
+    func library(kind: DecisionKind?) -> [LibraryEntry] {
+        guard let service else { return [] }
+        return (try? service.library(kind: kind)) ?? []
+    }
+
+    func likedTracks() -> [LikedTrack] {
+        guard let service else { return [] }
+        return (try? service.likedTracks()) ?? []
+    }
+
+    /// Flips the like on one track of the card on screen and refreshes just that card.
+    func toggleLike(releaseID: Int, youtubeID: String) {
+        guard let service else { return }
+        _ = try? service.toggleTrackLike(releaseID: releaseID, youtubeID: youtubeID)
+        guard
+            let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
+            let refreshed = try? service.refreshedCard(cards[index])
+        else { return }
+        cards[index] = refreshed
+    }
+
+    func setManualWeight(_ weight: Double?, artist id: Int) {
+        try? service?.setManualWeight(weight, artist: id)
+    }
+
+    func setManualWeight(_ weight: Double?, label id: Int) {
+        try? service?.setManualWeight(weight, label: id)
+    }
+
+    // MARK: - Obsidian
+
+    func exportToObsidian() async {
+        guard let service else {
+            status = "Noch keine Verbindung — Token pr\u{00FC}fen"
+            return
+        }
+        do {
+            let export = ObsidianRenderer.render(
+                library: try service.library(kind: nil),
+                likes: try service.likedTracks(),
+                generatedAt: Date()
+            )
+            try await ObsidianWriter(directory: ObsidianWriter.defaultDirectory).write(export)
+            status = "Obsidian aktualisiert"
+        } catch {
+            status = "Obsidian: \(error)"
+        }
+    }
+
+    // MARK: - Dig list
+
+    func searchDigLine(_ line: DigLine) async -> [DiscogsReleaseSummary] {
+        guard let client else { return [] }
+        return (try? await client.searchReleases(artist: line.artist, title: line.title)) ?? []
+    }
+
+    func acceptDigMatch(releaseID: Int, summary: DiscogsReleaseSummary) async {
+        guard let service else { return }
+        do {
+            try await service.importSearchHit(releaseID: releaseID, summary: summary)
+            status = "\(summary.title) auf die Wantlist"
         } catch {
             status = "Fehler: \(error)"
         }

@@ -144,6 +144,29 @@ extension QueueService {
         }
     }
 
+    /// Takes a search hit the user confirmed, files it as a release and hearts it.
+    /// Runs through the normal decision path so wantlist, outbox and graph expansion
+    /// behave exactly as they do for a card decided in the queue.
+    public func importSearchHit(releaseID: Int, summary: DiscogsReleaseSummary) async throws {
+        try database.write { db in
+            guard try ReleaseRecord.fetchOne(db, key: releaseID) == nil else { return }
+            var record = ReleaseRecord(
+                id: releaseID,
+                title: summary.title,
+                artistName: summary.artist ?? "",
+                year: summary.year,
+                catno: summary.catno,
+                labelID: nil,
+                styles: [],
+                want: 0,
+                have: 0,
+                hydrated: false
+            )
+            try record.save(db)
+        }
+        try await decide(releaseID: releaseID, kind: .love)
+    }
+
     public nonisolated func setManualWeight(_ weight: Double?, artist id: Int) throws {
         try database.write { db in
             try db.execute(

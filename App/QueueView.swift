@@ -80,8 +80,16 @@ struct QueueView: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else {
-                TrackList(tracks: card.tracks, player: environment.player)
-                TransportView(player: environment.player)
+                TrackList(
+                    releaseID: card.releaseID,
+                    tracks: card.tracks,
+                    player: environment.player,
+                    onToggleLike: { environment.toggleLike(releaseID: card.releaseID, youtubeID: $0) }
+                )
+                TransportView(player: environment.player) {
+                    guard let id = environment.player.currentVideoID else { return }
+                    environment.toggleLike(releaseID: card.releaseID, youtubeID: id)
+                }
             }
 
             Text("warum: \(card.reason)")
@@ -113,8 +121,10 @@ struct QueueView: View {
 /// The playable videos of the release. Observes the player directly so the marker
 /// follows along when a track ends and the next one starts on its own.
 private struct TrackList: View {
+    let releaseID: Int
     let tracks: [QueueTrack]
     @ObservedObject var player: PlayerController
+    let onToggleLike: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -142,6 +152,17 @@ private struct TrackList: View {
                 .buttonStyle(.plain)
                 .font(.callout)
                 .fontWeight(index == player.currentIndex ? .semibold : .regular)
+                .overlay(alignment: .trailing) {
+                    Button {
+                        onToggleLike(track.youtubeID)
+                    } label: {
+                        Image(systemName: track.liked ? "star.fill" : "star")
+                            .foregroundStyle(track.liked ? AnyShapeStyle(.yellow) : AnyShapeStyle(.tertiary))
+                    }
+                    .buttonStyle(.borderless)
+                    .offset(x: 22)
+                    .help(track.liked ? "Markierung entfernen" : "Track markieren")
+                }
             }
         }
     }
@@ -152,6 +173,7 @@ private struct TrackList: View {
 /// progress bar and the play/pause label frozen.
 private struct TransportView: View {
     @ObservedObject var player: PlayerController
+    let onLikeCurrent: () -> Void
 
     @State private var scrub: TimeInterval = 0
 
@@ -184,6 +206,9 @@ private struct TransportView: View {
                 Button("+10 s") { player.seek(by: 10) }
                     .keyboardShortcut("]", modifiers: [])
                 Button("\u{23ED}") { player.nextVideo() }
+                Button("\u{2605} L") { onLikeCurrent() }
+                    .keyboardShortcut("l", modifiers: [])
+                    .help("laufende Spur markieren")
                 Spacer()
                 Text("\(formatSeconds(player.position)) / \(formatSeconds(player.duration))")
                     .font(.system(.caption, design: .monospaced))
