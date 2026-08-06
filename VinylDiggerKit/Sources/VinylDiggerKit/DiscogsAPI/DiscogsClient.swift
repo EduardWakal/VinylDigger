@@ -128,6 +128,14 @@ public actor DiscogsClient {
         )
     }
 
+    public func removeFromWantlist(username: String, releaseID: Int) async throws {
+        _ = try await perform(
+            path: "/users/\(username)/wants/\(releaseID)",
+            method: "DELETE",
+            query: []
+        )
+    }
+
     // MARK: - Paging helpers
 
     private enum PageKey: String {

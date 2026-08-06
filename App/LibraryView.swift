@@ -142,14 +142,56 @@ struct LibraryView: View {
                     Text(entry.decidedAt, style: .date)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    Image(systemName: "play.circle")
-                        .foregroundStyle(.tint)
+
+                    HStack(spacing: 10) {
+                        Image(systemName: "play.circle")
+                            .foregroundStyle(.tint)
+
+                        Button {
+                            Task {
+                                await environment.remove(releaseID: entry.release.id)
+                                reload()
+                            }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help(removeTitle(entry.kind))
+                    }
                 }
             }
             .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .swipeActions(edge: .trailing) {
+            removeButton(entry)
+        }
+        .contextMenu {
+            removeButton(entry)
+        }
+    }
+
+    /// Removing a wantlist record deletes it on Discogs as well, so the label says
+    /// which list is meant rather than a bare "delete".
+    private func removeButton(_ entry: LibraryEntry) -> some View {
+        Button(role: .destructive) {
+            Task {
+                await environment.remove(releaseID: entry.release.id)
+                reload()
+            }
+        } label: {
+            Label(removeTitle(entry.kind), systemImage: "trash")
+        }
+    }
+
+    private func removeTitle(_ kind: DecisionKind) -> String {
+        switch kind {
+        case .love: return "Von der Wantlist nehmen"
+        case .later: return "Aus \"später\" nehmen"
+        case .discard: return "Aus \"weg\" nehmen"
+        }
     }
 
     private func trackRow(_ like: LikedTrack) -> some View {
@@ -193,12 +235,6 @@ struct LibraryView: View {
 
     private var footer: some View {
         HStack {
-            Button("Letzte Entscheidung rückgängig") {
-                Task {
-                    await environment.undoLastDecision()
-                    reload()
-                }
-            }
             Spacer()
             Text(selection == .tracks ? "\(likes.count) Tracks" : "\(entries.count) Platten")
                 .font(.caption)

@@ -70,9 +70,9 @@ public actor QueueService {
     private static let collectionWeightDelta = 0.18
 
     let database: AppDatabase
-    private let client: DiscogsClient
+    let client: DiscogsClient
     private let outbox: OutboxProcessor
-    private let username: String
+    let username: String
     let now: @Sendable () -> Date
 
     public init(

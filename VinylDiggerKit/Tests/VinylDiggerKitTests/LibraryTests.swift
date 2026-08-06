@@ -400,3 +400,108 @@ final class CardForReleaseTests: XCTestCase {
         XCTAssertThrowsError(try service.card(forReleaseID: 999))
     }
 }
+
+final class RemoveFromListTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    private func makeService(
+        _ transport: StubTransport
+    ) throws -> (QueueService, AppDatabase) {
+        let db = try AppDatabase.inMemory()
+        let secrets = InMemorySecretStore()
+        try secrets.write("tok", for: .discogsToken)
+        let client = DiscogsClient(
+            transport: transport, secrets: secrets,
+            limiter: RateLimiter(capacity: 100, refillPerSecond: 100),
+            userAgent: "VinylDiggerTests/1.0"
+        )
+        let outbox = OutboxProcessor(database: db, writer: client, username: "schakal", now: { self.now })
+        return (
+            QueueService(
+                database: db, client: client, outbox: outbox,
+                username: "schakal", now: { self.now }
+            ),
+            db
+        )
+    }
+
+    private func seed(_ db: AppDatabase, kind: DecisionKind) throws {
+        try db.write { database in
+            var release = ReleaseRecord(
+                id: 2831, title: "Fresh Connections", artistName: "Inland Knights",
+                year: nil, catno: nil, labelID: nil, styles: [], want: 0, have: 0,
+                hydrated: false
+            )
+            try release.save(database)
+            var decision = DecisionRecord(
+                id: nil, releaseID: 2831, kind: kind, decidedAt: self.now, revisitAt: nil
+            )
+            try decision.insert(database)
+        }
+    }
+
+    func testRemovingFromTheWantlistAlsoDeletesItOnDiscogs() async throws {
+        let transport = StubTransport(replies: [.init(status: 204, body: Data())])
+        let (service, db) = try makeService(transport)
+        try seed(db, kind: .love)
+
+        try await service.remove(releaseID: 2831)
+
+        XCTAssertEqual(transport.sentRequests.count, 1)
+        XCTAssertEqual(transport.sentRequests[0].httpMethod, "DELETE")
+        XCTAssertTrue(
+            transport.sentRequests[0].url!.path.hasSuffix("/users/schakal/wants/2831")
+        )
+        XCTAssertTrue(try service.library(kind: nil).isEmpty)
+    }
+
+    func testRemovingADiscardTouchesNothingRemote() async throws {
+        let transport = StubTransport(replies: [])
+        let (service, db) = try makeService(transport)
+        try seed(db, kind: .discard)
+
+        try await service.remove(releaseID: 2831)
+
+        XCTAssertTrue(transport.sentRequests.isEmpty, "only the wantlist lives on Discogs")
+        XCTAssertTrue(try service.library(kind: nil).isEmpty)
+    }
+
+    func testAFailedRemoteDeleteKeepsTheLocalEntry() async throws {
+        let transport = StubTransport(replies: [.init(status: 500, body: Data())])
+        let (service, db) = try makeService(transport)
+        try seed(db, kind: .love)
+
+        do {
+            try await service.remove(releaseID: 2831)
+            XCTFail("expected a throw")
+        } catch {}
+
+        XCTAssertEqual(
+            try service.library(kind: .love).count, 1,
+            "the two sides must not drift apart"
+        )
+    }
+
+    func testRemovingAlsoClearsTrackLikes() async throws {
+        let transport = StubTransport(replies: [.init(status: 204, body: Data())])
+        let (service, db) = try makeService(transport)
+        try seed(db, kind: .love)
+        try db.write { database in
+            var video = VideoRecord(
+                id: nil, releaseID: 2831, youtubeID: "abc", title: nil,
+                position: 0, unavailable: false
+            )
+            try video.insert(database)
+        }
+        _ = try service.toggleTrackLike(releaseID: 2831, youtubeID: "abc")
+
+        try await service.remove(releaseID: 2831)
+
+        XCTAssertEqual(try db.read { try TrackLikeRecord.fetchCount($0) }, 0)
+    }
+
+    func testRemovingAnUnknownReleaseIsHarmless() async throws {
+        let (service, _) = try makeService(StubTransport(replies: []))
+        try await service.remove(releaseID: 999)
+    }
+}

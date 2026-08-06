@@ -153,20 +153,6 @@ final class AppEnvironment: ObservableObject {
         }
     }
 
-    func undoLastDecision() async {
-        guard let database else { return }
-        do {
-            try database.write { db in
-                if let last = try DecisionRecord.order(Column("decidedAt").desc).fetchOne(db) {
-                    _ = try last.delete(db)
-                }
-            }
-            await reload()
-        } catch {
-            status = "Fehler: \(error)"
-        }
-    }
-
     // MARK: - Library
 
     func library(kind: DecisionKind?) -> [LibraryEntry] {
@@ -199,6 +185,21 @@ final class AppEnvironment: ObservableObject {
         guard let id = player.currentVideoID else { return }
         guard let card = cards.first(where: { $0.videoIDs.contains(id) }) else { return }
         toggleLike(releaseID: card.releaseID, youtubeID: id)
+    }
+
+    /// Takes a record out of its list. The wantlist also lives on Discogs, so that
+    /// side is deleted too — see QueueService.remove.
+    func remove(releaseID: Int) async {
+        guard let service else { return }
+        do {
+            try await service.remove(releaseID: releaseID)
+            if inspected?.releaseID == releaseID {
+                backToDig()
+            }
+            status = "aus der Liste entfernt"
+        } catch {
+            status = "Entfernen fehlgeschlagen: \(error)"
+        }
     }
 
     /// Opens one record from the library in the player: fetches whatever is still

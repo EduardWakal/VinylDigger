@@ -167,6 +167,31 @@ extension QueueService {
         try await decide(releaseID: releaseID, kind: .love)
     }
 
+    /// Takes a release out of whatever list it sits in.
+    ///
+    /// The wantlist is the one list that also lives on Discogs, so it is deleted
+    /// there first — a local delete alone would be undone by the next sync. If the
+    /// remote call fails nothing is removed here either, so the two never drift.
+    public func remove(releaseID: Int) async throws {
+        let kinds = try database.read { db in
+            try DecisionRecord
+                .filter(Column("releaseID") == releaseID)
+                .fetchAll(db)
+                .map(\.kind)
+        }
+        guard !kinds.isEmpty else { return }
+
+        if kinds.contains(.love) {
+            try await client.removeFromWantlist(username: username, releaseID: releaseID)
+        }
+
+        try database.write { db in
+            try DecisionRecord.filter(Column("releaseID") == releaseID).deleteAll(db)
+            try TrackLikeRecord.filter(Column("releaseID") == releaseID).deleteAll(db)
+            try OutboxRecord.filter(Column("releaseID") == releaseID).deleteAll(db)
+        }
+    }
+
     public nonisolated func setManualWeight(_ weight: Double?, artist id: Int) throws {
         try database.write { db in
             try db.execute(
