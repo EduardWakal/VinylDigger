@@ -37,7 +37,7 @@ struct LibraryView: View {
 
     private var picker: some View {
         HStack(spacing: 8) {
-            chip("♥ Wantlist", count: counts[.love] ?? 0, kind: .love)
+            chip("👁 Wantlist", count: counts[.love] ?? 0, kind: .love)
             chip("↓ später", count: counts[.later] ?? 0, kind: .later)
             chip("✗ weg", count: counts[.discard] ?? 0, kind: .discard)
             chip("alle", count: entriesTotal, kind: nil)
@@ -105,9 +105,19 @@ struct LibraryView: View {
 
             Spacer()
 
-            Text(entry.decidedAt, style: .date)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            VStack(alignment: .trailing, spacing: 6) {
+                Text(entry.decidedAt, style: .date)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Button {
+                    environment.playFromLibrary(releaseID: entry.release.id)
+                } label: {
+                    Image(systemName: "play.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("im Player abspielen")
+            }
         }
         .padding(.vertical, 4)
     }

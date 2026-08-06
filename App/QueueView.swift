@@ -11,7 +11,8 @@ struct QueueView: View {
             header
             Divider()
             if let card = environment.currentCard {
-                cardBody(card)
+                // Some records carry a dozen tracks; the card has to give way.
+                ScrollView { cardBody(card) }
             } else {
                 ContentUnavailableView(
                     "Queue leer",

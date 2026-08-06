@@ -62,6 +62,7 @@ final class AppEnvironment: ObservableObject {
 
             status = "Sammlung wird abgeglichen…"
             let owned = try await service.syncCollection()
+            try await service.syncWantlist()
 
             cards = try service.rebuildQueue(limit: 50)
             currentIndex = 0
@@ -179,6 +180,43 @@ final class AppEnvironment: ObservableObject {
         guard let id = player.currentVideoID else { return }
         guard let card = cards.first(where: { $0.videoIDs.contains(id) }) else { return }
         toggleLike(releaseID: card.releaseID, youtubeID: id)
+    }
+
+    /// Plays a record straight from the library, without disturbing the queue.
+    func playFromLibrary(releaseID: Int) {
+        guard let service else { return }
+        let card = cards.first { $0.releaseID == releaseID }
+            ?? (try? service.refreshedCard(QueueCard(
+                releaseID: releaseID, title: "", artistName: "", labelName: nil,
+                catno: nil, year: nil, styles: [], want: 0, reason: "", videoIDs: []
+            )))
+        guard let card, !card.videoIDs.isEmpty else {
+            status = "Kein Preview für diese Platte"
+            return
+        }
+        player.load(
+            videoIDs: card.videoIDs,
+            labels: card.tracks.map { track in
+                let position = track.position.map { "\($0) \u{00B7} " } ?? ""
+                return position + (track.title ?? "ohne Titel")
+            },
+            context: "\(card.artistName) \u{2014} \(card.title)"
+        )
+    }
+
+    /// Uses the wantlist as the seed for the next round of digging.
+    func suggestFromWantlist() async {
+        guard let service else { return }
+        status = "Vorschläge werden abgeleitet…"
+        do {
+            let expanded = try await service.expandFromWantlist()
+            cards = try service.rebuildQueue(limit: 50)
+            currentIndex = 0
+            loadCurrentCard()
+            status = "\(expanded) Platten ausgewertet · \(cards.count) in der Queue"
+        } catch {
+            status = "Fehler: \(error)"
+        }
     }
 
     func setManualWeight(_ weight: Double?, artist id: Int) {

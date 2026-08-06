@@ -104,6 +104,22 @@ public actor DiscogsClient {
         try await allReleaseIDs(path: "/users/\(username)/wants")
     }
 
+    /// The wantlist with enough detail to file a release without a second call —
+    /// `/wants` already carries artist, title, label and catalogue number.
+    public func wantlist(username: String) async throws -> [DiscogsWant] {
+        var wants: [DiscogsWant] = []
+        var page = 1
+        while true {
+            let result: DiscogsPage<DiscogsWant> = try await fetchPage(
+                path: "/users/\(username)/wants", key: .wants, page: page
+            )
+            wants.append(contentsOf: result.items)
+            if page >= result.pages { break }
+            page += 1
+        }
+        return wants
+    }
+
     public func addToWantlist(username: String, releaseID: Int) async throws {
         _ = try await perform(
             path: "/users/\(username)/wants/\(releaseID)",

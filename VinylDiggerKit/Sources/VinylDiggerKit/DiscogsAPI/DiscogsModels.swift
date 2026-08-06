@@ -212,3 +212,62 @@ public struct DiscogsPage<T: Codable & Equatable & Sendable>: Equatable, Sendabl
         self.pages = pages
     }
 }
+
+/// One entry of the user's Discogs wantlist. The API nests the useful part under
+/// `basic_information`; this flattens it.
+public struct DiscogsWant: Codable, Equatable, Sendable {
+    public let id: Int
+    public let title: String
+    public let artistName: String
+    public let year: Int?
+    public let labelName: String?
+    public let labelID: Int?
+    public let catno: String?
+
+    public init(
+        id: Int, title: String, artistName: String, year: Int?,
+        labelName: String?, labelID: Int?, catno: String?
+    ) {
+        self.id = id
+        self.title = title
+        self.artistName = artistName
+        self.year = year
+        self.labelName = labelName
+        self.labelID = labelID
+        self.catno = catno
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case basicInformation = "basic_information"
+    }
+
+    private struct Basic: Codable {
+        struct Ref: Codable {
+            let id: Int?
+            let name: String?
+            let catno: String?
+        }
+        let title: String?
+        let year: Int?
+        let artists: [Ref]?
+        let labels: [Ref]?
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        let basic = try c.decodeIfPresent(Basic.self, forKey: .basicInformation)
+        title = basic?.title ?? ""
+        year = basic?.year
+        artistName = basic?.artists?.first?.name ?? ""
+        labelName = basic?.labels?.first?.name
+        labelID = basic?.labels?.first?.id
+        catno = basic?.labels?.first?.catno
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+    }
+}

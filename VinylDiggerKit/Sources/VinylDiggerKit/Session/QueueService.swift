@@ -257,6 +257,66 @@ public actor QueueService {
         return ids.count
     }
 
+    /// Pulls the Discogs wantlist in so the library shows the same thing Discogs
+    /// does. Entries the app never saw are filed as stubs and hydrated later like
+    /// any other release; a release already known keeps whatever it has.
+    @discardableResult
+    public func syncWantlist() async throws -> Int {
+        let wants = try await client.wantlist(username: username)
+        let current = now()
+
+        try database.write { db in
+            for want in wants {
+                if let labelID = want.labelID, let labelName = want.labelName {
+                    try NodeUpsert.label(id: labelID, name: labelName, in: db)
+                }
+
+                if try ReleaseRecord.fetchOne(db, key: want.id) == nil {
+                    var record = ReleaseRecord(
+                        id: want.id, title: want.title, artistName: want.artistName,
+                        year: want.year, catno: want.catno, labelID: want.labelID,
+                        styles: [], want: 0, have: 0, hydrated: false
+                    )
+                    try record.save(db)
+                }
+
+                let alreadyLoved = try DecisionRecord
+                    .filter(Column("releaseID") == want.id && Column("kind") == DecisionKind.love.rawValue)
+                    .fetchCount(db) > 0
+                guard !alreadyLoved else { continue }
+
+                var decision = DecisionRecord(
+                    id: nil, releaseID: want.id, kind: .love,
+                    decidedAt: current, revisitAt: nil
+                )
+                try decision.insert(db)
+            }
+        }
+        return wants.count
+    }
+
+    /// Grows the graph outwards from everything on the wantlist — the records the
+    /// user actually wants are the best description of their taste the app has.
+    /// Returns how many releases were expanded from.
+    @discardableResult
+    public func expandFromWantlist(limit: Int = 10) async throws -> Int {
+        let loved = try database.read { db in
+            try DecisionRecord
+                .filter(Column("kind") == DecisionKind.love.rawValue)
+                .order(Column("decidedAt").desc)
+                .fetchAll(db)
+                .map(\.releaseID)
+        }
+
+        var expanded = 0
+        for releaseID in loved.prefix(limit) {
+            // One bad lookup must not stop the rest — the next run picks it up.
+            guard (try? await expand(from: releaseID)) != nil else { continue }
+            expanded += 1
+        }
+        return expanded
+    }
+
     // MARK: - Expansion
 
     /// Re-reads one card's release and videos without touching the queue order.

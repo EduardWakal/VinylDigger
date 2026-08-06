@@ -7,7 +7,6 @@ struct StatsView: View {
     @State private var artists: [ArtistRecord] = []
     @State private var labels: [LabelRecord] = []
     @State private var likes: [LikedTrack] = []
-    @State private var showingDigImport = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -15,9 +14,9 @@ struct StatsView: View {
             Divider()
 
             List {
-                Section("Markierte Tracks (\(likes.count))") {
+                Section("Gemochte Tracks (\(likes.count))") {
                     if likes.isEmpty {
-                        Text("Noch keine. Im Player den Stern neben einer Spur klicken, oder L drücken.")
+                        Text("Noch keine. Im Player das Herz neben einer Spur klicken, oder L drücken.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -65,9 +64,6 @@ struct StatsView: View {
             .listStyle(.inset)
         }
         .onAppear(perform: reload)
-        .sheet(isPresented: $showingDigImport) {
-            DigImportView().environmentObject(environment)
-        }
     }
 
     private var toolbar: some View {
@@ -83,10 +79,11 @@ struct StatsView: View {
             .buttonStyle(.borderedProminent)
 
             Button {
-                showingDigImport = true
+                Task { await environment.suggestFromWantlist() }
             } label: {
-                Label("Dig-Liste einlesen", systemImage: "text.badge.plus")
+                Label("Vorschläge aus Wantlist", systemImage: "sparkle.magnifyingglass")
             }
+            .help("Graph von den Platten aus erweitern, die auf der Wantlist stehen")
 
             Spacer()
 

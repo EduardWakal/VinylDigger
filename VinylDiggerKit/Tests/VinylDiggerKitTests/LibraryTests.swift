@@ -246,3 +246,104 @@ final class NodeUpsertTests: XCTestCase {
         XCTAssertEqual(try db.read { try LabelRecord.fetchOne($0, key: 15) }?.name, "20:20 Vision Recordings")
     }
 }
+
+final class WantlistSyncTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    private var wantsBody: Data {
+        Data(#"""
+        {"pagination": {"page": 1, "pages": 1, "items": 2, "per_page": 100},
+         "wants": [
+          {"id": 5040318, "basic_information": {"title": "J's Credit EP", "year": 2013,
+            "artists": [{"id": 1, "name": "Mr. G"}],
+            "labels": [{"id": 42, "name": "Bass Culture", "catno": "BCR035"}]}},
+          {"id": 1302967, "basic_information": {"title": "Preacher", "year": 2008,
+            "artists": [{"id": 2, "name": "Moodymanc"}],
+            "labels": [{"id": 15, "name": "20:20 Vision", "catno": "VIS200"}]}}
+         ]}
+        """#.utf8)
+    }
+
+    private func makeService(_ transport: StubTransport) throws -> (QueueService, AppDatabase) {
+        let db = try AppDatabase.inMemory()
+        let secrets = InMemorySecretStore()
+        try secrets.write("tok", for: .discogsToken)
+        let client = DiscogsClient(
+            transport: transport, secrets: secrets,
+            limiter: RateLimiter(capacity: 100, refillPerSecond: 100),
+            userAgent: "VinylDiggerTests/1.0"
+        )
+        let outbox = OutboxProcessor(database: db, writer: client, username: "schakal", now: { self.now })
+        return (
+            QueueService(
+                database: db, client: client, outbox: outbox,
+                username: "schakal", now: { self.now }
+            ),
+            db
+        )
+    }
+
+    func testSyncWantlistFilesUnknownReleases() async throws {
+        let (service, db) = try makeService(StubTransport(replies: [.init(body: wantsBody)]))
+
+        let count = try await service.syncWantlist()
+
+        XCTAssertEqual(count, 2)
+        let release = try db.read { try ReleaseRecord.fetchOne($0, key: 5040318) }
+        XCTAssertEqual(release?.title, "J's Credit EP")
+        XCTAssertEqual(release?.artistName, "Mr. G")
+        XCTAssertEqual(release?.catno, "BCR035")
+        XCTAssertEqual(release?.labelID, 42)
+        XCTAssertEqual(try db.read { try LabelRecord.fetchOne($0, key: 42) }?.name, "Bass Culture")
+    }
+
+    func testSyncWantlistRecordsALoveSoTheLibraryMatchesDiscogs() async throws {
+        let (service, db) = try makeService(StubTransport(replies: [.init(body: wantsBody)]))
+
+        _ = try await service.syncWantlist()
+
+        let loved = try service.library(kind: .love).map(\.release.id).sorted()
+        XCTAssertEqual(loved, [1302967, 5040318])
+    }
+
+    func testSyncWantlistDoesNotDuplicateAnExistingDecision() async throws {
+        let (service, db) = try makeService(StubTransport(replies: [.init(body: wantsBody)]))
+        try db.write { database in
+            var release = ReleaseRecord(
+                id: 5040318, title: "J's Credit EP", artistName: "Mr. G", year: nil,
+                catno: nil, labelID: nil, styles: [], want: 0, have: 0, hydrated: false
+            )
+            try release.save(database)
+            var decision = DecisionRecord(
+                id: nil, releaseID: 5040318, kind: .love,
+                decidedAt: self.now, revisitAt: nil
+            )
+            try decision.insert(database)
+        }
+
+        _ = try await service.syncWantlist()
+
+        let decisions = try db.read {
+            try DecisionRecord.filter(Column("releaseID") == 5040318).fetchAll($0)
+        }
+        XCTAssertEqual(decisions.count, 1)
+    }
+
+    func testSyncWantlistLeavesAnExistingTitleAlone() async throws {
+        let (service, db) = try makeService(StubTransport(replies: [.init(body: wantsBody)]))
+        try db.write { database in
+            var release = ReleaseRecord(
+                id: 5040318, title: "Schon bekannt", artistName: "Mr. G", year: 2013,
+                catno: "BCR035", labelID: 42, styles: ["Deep House"], want: 99, have: 4,
+                hydrated: true
+            )
+            try release.save(database)
+        }
+
+        _ = try await service.syncWantlist()
+
+        let release = try db.read { try ReleaseRecord.fetchOne($0, key: 5040318) }
+        XCTAssertEqual(release?.title, "Schon bekannt")
+        XCTAssertEqual(release?.want, 99, "a hydrated release must not be overwritten by the stub")
+    }
+}
