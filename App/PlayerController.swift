@@ -16,6 +16,16 @@ final class PlayerController: NSObject, ObservableObject {
     @Published private(set) var currentVideoID: String?
     @Published private(set) var currentIndex = 0
     @Published private(set) var videoUnavailable = false
+    /// What the transport shows. Kept here rather than read off the card, so the
+    /// bar keeps naming the right track even while another card is on screen.
+    @Published private(set) var contextLabel: String?
+    @Published private(set) var trackLabels: [String] = []
+
+    var currentTrackLabel: String? {
+        trackLabels.indices.contains(currentIndex) ? trackLabels[currentIndex] : nil
+    }
+
+    var hasLoadedVideo: Bool { currentVideoID != nil }
 
     /// While the user drags the slider, incoming positions are dropped so the
     /// knob does not fight the updates still arriving from the page.
@@ -44,8 +54,10 @@ final class PlayerController: NSObject, ObservableObject {
         webView.loadHTMLString(Self.playerHTML, baseURL: URL(string: Self.embedOrigin))
     }
 
-    func load(videoIDs: [String]) {
+    func load(videoIDs: [String], labels: [String] = [], context: String? = nil) {
         cursor = PlaylistCursor(videoIDs: videoIDs)
+        trackLabels = labels
+        contextLabel = videoIDs.isEmpty ? nil : context
         videoUnavailable = videoIDs.isEmpty
         position = 0
         duration = 0
@@ -86,11 +98,21 @@ final class PlayerController: NSObject, ObservableObject {
 
     private func playCurrent() {
         guard let id = cursor.current else {
-            videoUnavailable = true
-            currentVideoID = nil
+            // Nothing to play here — silence the previous record rather than
+            // leaving it running under a card it does not belong to.
+            stop()
             return
         }
         startVideo(id)
+    }
+
+    private func stop() {
+        videoUnavailable = true
+        currentVideoID = nil
+        isPlaying = false
+        position = 0
+        duration = 0
+        evaluate("player.stopVideo()")
     }
 
     private func startVideo(_ id: String) {

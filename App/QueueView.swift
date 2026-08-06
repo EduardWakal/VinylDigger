@@ -21,6 +21,10 @@ struct QueueView: View {
                 .frame(maxHeight: .infinity)
             }
             Divider()
+            TransportView(player: environment.player) {
+                environment.likeCurrentlyPlaying()
+            }
+            Divider()
             controls
         }
         .padding(20)
@@ -106,10 +110,6 @@ struct QueueView: View {
                     player: environment.player,
                     onToggleLike: { environment.toggleLike(releaseID: card.releaseID, youtubeID: $0) }
                 )
-                TransportView(player: environment.player) {
-                    guard let id = environment.player.currentVideoID else { return }
-                    environment.toggleLike(releaseID: card.releaseID, youtubeID: id)
-                }
             }
 
             Text("warum: \(card.reason)")
@@ -188,9 +188,8 @@ private struct TrackList: View {
     }
 }
 
-/// Observes the player directly — SwiftUI does not follow an ObservableObject
-/// held inside another one, so reading it through AppEnvironment would leave the
-/// progress bar and the play/pause label frozen.
+/// The transport. Sits below the card and stays put, so playback can always be
+/// stopped — a card without a preview used to take the pause button with it.
 private struct TransportView: View {
     @ObservedObject var player: PlayerController
     let onLikeCurrent: () -> Void
@@ -199,6 +198,34 @@ private struct TransportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
+                    .font(.caption)
+                    .foregroundStyle(player.hasLoadedVideo ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+
+                if player.hasLoadedVideo {
+                    Text(player.currentTrackLabel ?? "l\u{00E4}uft")
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                    if let context = player.contextLabel {
+                        Text(context)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    Text("nichts geladen")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Text("\(formatSeconds(player.position)) / \(formatSeconds(player.duration))")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
             Slider(
                 value: Binding(
                     get: { player.isScrubbing ? scrub : player.position },
@@ -230,10 +257,8 @@ private struct TransportView: View {
                     .keyboardShortcut("l", modifiers: [])
                     .help("laufende Spur markieren")
                 Spacer()
-                Text("\(formatSeconds(player.position)) / \(formatSeconds(player.duration))")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
             }
+            .disabled(!player.hasLoadedVideo)
         }
     }
 }

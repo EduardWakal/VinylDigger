@@ -157,6 +157,13 @@ final class AppEnvironment: ObservableObject {
         cards[index] = refreshed
     }
 
+    /// Marks whatever is playing, which is not always a track of the card on screen.
+    func likeCurrentlyPlaying() {
+        guard let id = player.currentVideoID else { return }
+        guard let card = cards.first(where: { $0.videoIDs.contains(id) }) else { return }
+        toggleLike(releaseID: card.releaseID, youtubeID: id)
+    }
+
     func setManualWeight(_ weight: Double?, artist id: Int) {
         try? service?.setManualWeight(weight, artist: id)
     }
@@ -222,7 +229,14 @@ final class AppEnvironment: ObservableObject {
             player.load(videoIDs: [])
             return
         }
-        player.load(videoIDs: card.videoIDs)
+        player.load(
+            videoIDs: card.videoIDs,
+            labels: card.tracks.map { track in
+                let position = track.position.map { "\($0) \u{00B7} " } ?? ""
+                return position + (track.title ?? "ohne Titel")
+            },
+            context: "\(card.artistName) \u{2014} \(card.title)"
+        )
         Task {
             await hydrateCurrentCard(card.releaseID)
             await prefetchUpcoming()
