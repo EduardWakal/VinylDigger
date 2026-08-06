@@ -1,6 +1,21 @@
 import Foundation
 import GRDB
 
+public struct QueueTrack: Equatable, Sendable {
+    public let youtubeID: String
+    public let title: String?
+    /// Discogs sleeve position such as "A1"; nil when it could not be matched.
+    public let position: String?
+    public let duration: Int?
+
+    public init(youtubeID: String, title: String?, position: String?, duration: Int?) {
+        self.youtubeID = youtubeID
+        self.title = title
+        self.position = position
+        self.duration = duration
+    }
+}
+
 public struct QueueCard: Equatable, Sendable {
     public let releaseID: Int
     public let title: String
@@ -12,7 +27,33 @@ public struct QueueCard: Equatable, Sendable {
     public let want: Int
     public let reason: String
     public let videoIDs: [String]
-    public let tracklist: [String]
+    /// Discogs community rating, nil until it has been fetched for this release.
+    public let rating: Double?
+    public let ratingCount: Int
+    public let coverURL: String?
+    public let tracks: [QueueTrack]
+
+    public init(
+        releaseID: Int, title: String, artistName: String, labelName: String?,
+        catno: String?, year: Int?, styles: [String], want: Int, reason: String,
+        videoIDs: [String], rating: Double? = nil, ratingCount: Int = 0,
+        coverURL: String? = nil, tracks: [QueueTrack] = []
+    ) {
+        self.releaseID = releaseID
+        self.title = title
+        self.artistName = artistName
+        self.labelName = labelName
+        self.catno = catno
+        self.year = year
+        self.styles = styles
+        self.want = want
+        self.reason = reason
+        self.videoIDs = videoIDs
+        self.rating = rating
+        self.ratingCount = ratingCount
+        self.coverURL = coverURL
+        self.tracks = tracks
+    }
 }
 
 /// Coordinates the store, the graph and the Discogs client.
@@ -134,7 +175,15 @@ public actor QueueService {
                     want: release.want,
                     reason: item.reason,
                     videoIDs: videos.map(\.youtubeID),
-                    tracklist: videos.compactMap(\.title)
+                    rating: release.ratingCount > 0 ? release.rating : nil,
+                    ratingCount: release.ratingCount,
+                    coverURL: release.coverURL,
+                    tracks: videos.map {
+                        QueueTrack(
+                            youtubeID: $0.youtubeID, title: $0.title,
+                            position: $0.trackPosition, duration: $0.duration
+                        )
+                    }
                 ))
             }
 
@@ -178,6 +227,55 @@ public actor QueueService {
     }
 
     // MARK: - Expansion
+
+    /// Fetches everything the card needs that the bootstrap dumps do not carry:
+    /// rating, sleeve image, video titles, durations and track positions.
+    /// A release is only ever fetched once.
+    @discardableResult
+    public func hydrateRelease(releaseID: Int) async throws -> ReleaseRecord {
+        let cached = try database.read { db in
+            try ReleaseRecord.fetchOne(db, key: releaseID)
+        }
+        if let cached, cached.ratingCount > 0 { return cached }
+
+        let release = try await client.release(id: releaseID)
+        let positions = TrackMatcher.positions(
+            videos: release.videos, tracklist: release.tracklist
+        )
+
+        return try database.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE release SET rating = ?, ratingCount = ?, want = ?, have = ?,
+                    coverURL = ? WHERE id = ?
+                    """,
+                arguments: [
+                    release.community.rating.average, release.community.rating.count,
+                    release.community.want, release.community.have,
+                    release.coverURL, releaseID
+                ]
+            )
+
+            for (index, video) in release.videos.enumerated() {
+                guard let youtubeID = video.youtubeID else { continue }
+                try db.execute(
+                    sql: """
+                        UPDATE video SET title = ?, duration = ?, trackPosition = ?
+                        WHERE releaseID = ? AND youtubeID = ?
+                        """,
+                    arguments: [
+                        video.title, video.duration, positions[index],
+                        releaseID, youtubeID
+                    ]
+                )
+            }
+
+            guard let updated = try ReleaseRecord.fetchOne(db, key: releaseID) else {
+                throw DiscogsError.transport
+            }
+            return updated
+        }
+    }
 
     public func expand(from releaseID: Int) async throws {
         let release = try await client.release(id: releaseID)

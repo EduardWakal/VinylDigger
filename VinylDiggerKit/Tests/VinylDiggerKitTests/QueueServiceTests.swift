@@ -62,6 +62,78 @@ final class QueueServiceTests: XCTestCase {
         XCTAssertTrue(cards[0].reason.contains("20:20 Vision"))
     }
 
+    private var releaseBody: Data {
+        Data(#"""
+        {"id": 2831, "title": "Fresh Connections", "labels": [], "artists": [],
+         "community": {"want": 600, "have": 520, "rating": {"average": 4.22, "count": 79}},
+         "images": [{"type": "primary", "uri": "https://i.discogs.com/front.jpeg"}],
+         "tracklist": [{"position": "B1", "title": "Fresh Connections"}],
+         "videos": [{"uri": "https://youtu.be/cqRa3O8xQNQ",
+                     "title": "Inland Knights - Fresh Connections", "duration": 451}]}
+        """#.utf8)
+    }
+
+    func testHydrateReleaseStoresRatingCoverAndVideoDetail() async throws {
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: releaseBody)])
+        )
+        try seedGraph(db)
+
+        let stored = try await service.hydrateRelease(releaseID: 2831)
+
+        XCTAssertEqual(stored.rating, 4.22, accuracy: 0.001)
+        XCTAssertEqual(stored.ratingCount, 79)
+        XCTAssertEqual(stored.want, 600)
+        XCTAssertEqual(stored.coverURL, "https://i.discogs.com/front.jpeg")
+
+        let video = try db.read {
+            try VideoRecord.filter(Column("releaseID") == 2831).fetchOne($0)
+        }
+        XCTAssertEqual(video?.title, "Inland Knights - Fresh Connections")
+        XCTAssertEqual(video?.duration, 451)
+        XCTAssertEqual(video?.trackPosition, "B1")
+    }
+
+    func testHydrateReleaseIsSkippedWhenAlreadyKnown() async throws {
+        let transport = StubTransport(replies: [])
+        let (service, db) = try makeService(transport: transport)
+        try seedGraph(db)
+        try db.write { database in
+            try database.execute(
+                sql: "UPDATE release SET rating = 3.5, ratingCount = 12 WHERE id = 2831"
+            )
+        }
+
+        let stored = try await service.hydrateRelease(releaseID: 2831)
+
+        XCTAssertEqual(stored.ratingCount, 12)
+        XCTAssertTrue(transport.sentRequests.isEmpty)
+    }
+
+    func testRebuildQueueCarriesCoverAndTracksOntoCard() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            try database.execute(sql: """
+                UPDATE release SET rating = 4.22, ratingCount = 79,
+                coverURL = 'https://i.discogs.com/front.jpeg' WHERE id = 2831
+                """)
+            try database.execute(sql: """
+                UPDATE video SET title = 'Inland Knights - Fresh Connections',
+                duration = 451, trackPosition = 'B1' WHERE releaseID = 2831
+                """)
+        }
+
+        let cards = try service.rebuildQueue(limit: 10)
+
+        XCTAssertEqual(cards[0].rating ?? 0, 4.22, accuracy: 0.001)
+        XCTAssertEqual(cards[0].coverURL, "https://i.discogs.com/front.jpeg")
+        XCTAssertEqual(cards[0].tracks.count, 1)
+        XCTAssertEqual(cards[0].tracks[0].youtubeID, "cqRa3O8xQNQ")
+        XCTAssertEqual(cards[0].tracks[0].position, "B1")
+        XCTAssertEqual(cards[0].tracks[0].duration, 451)
+    }
+
     func testRebuildQueuePersistsQueueItems() throws {
         let (service, db) = try makeService()
         try seedGraph(db)
