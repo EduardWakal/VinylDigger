@@ -6,7 +6,6 @@ struct SettingsView: View {
 
     @State private var token = ""
     @State private var username = ""
-    @State private var windowLength: Double = 60
     @State private var message = ""
 
     private let secrets = KeychainSecretStore()
@@ -18,19 +17,6 @@ struct SettingsView: View {
                     .textContentType(.password)
                 TextField("Benutzername", text: $username)
                 Text("Token holen unter discogs.com/settings/developers. Er wird im Schlüsselbund abgelegt, nie auf der Festplatte.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Wiedergabe") {
-                Slider(value: $windowLength, in: 30...120, step: 15) {
-                    Text("Hörfenster")
-                } minimumValueLabel: {
-                    Text("30 s")
-                } maximumValueLabel: {
-                    Text("120 s")
-                }
-                Text("\(Int(windowLength)) Sekunden pro Karte")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -56,7 +42,6 @@ struct SettingsView: View {
     private func load() {
         token = (try? secrets.read(.discogsToken)).flatMap { $0 } ?? ""
         username = (try? secrets.read(.discogsUsername)).flatMap { $0 } ?? ""
-        windowLength = environment.player.windowLength
     }
 
     private func save() {
@@ -71,7 +56,6 @@ struct SettingsView: View {
             } else {
                 try secrets.write(username, for: .discogsUsername)
             }
-            environment.player.windowLength = windowLength
             message = "gesichert"
         } catch {
             message = "Fehler: \(error)"

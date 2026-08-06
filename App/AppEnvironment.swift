@@ -10,6 +10,9 @@ final class AppEnvironment: ObservableObject {
     @Published var status = "bereit"
 
     let player = PlayerController()
+    let covers = CoverStore(
+        directory: CoverStore.defaultDirectory, transport: URLSessionTransport()
+    )
 
     private(set) var database: AppDatabase?
     private var service: QueueService?
@@ -124,6 +127,20 @@ final class AppEnvironment: ObservableObject {
             return
         }
         player.load(videoIDs: card.videoIDs)
+        guard card.rating == nil else { return }
+        Task { await hydrateCurrentCard(card.releaseID) }
+    }
+
+    /// The extra detail costs one API call, so it is fetched only for the card on
+    /// screen. A failure is silent — the card stays usable without it.
+    private func hydrateCurrentCard(_ releaseID: Int) async {
+        guard let service, (try? await service.hydrateRelease(releaseID: releaseID)) != nil else {
+            return
+        }
+        guard let refreshed = try? service.rebuildQueue(limit: 50) else { return }
+        let keepIndex = currentIndex
+        cards = refreshed
+        currentIndex = min(keepIndex, max(refreshed.count - 1, 0))
     }
 
     private func bootstrapIfEmpty(_ database: AppDatabase) async throws {
