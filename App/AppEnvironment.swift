@@ -253,12 +253,12 @@ final class AppEnvironment: ObservableObject {
         }
     }
 
-    /// Uses the wantlist as the seed for the next round of digging.
+    /// Uses the wantlist and the marked tracks as the seed for the next round.
     func suggestFromWantlist() async {
         guard let service else { return }
         status = "Vorschläge werden abgeleitet…"
         do {
-            let expanded = try await service.expandFromWantlist()
+            let expanded = try await service.expandFromTaste()
             cards = try service.rebuildQueue(limit: 50)
             currentIndex = 0
             loadCurrentCard()
@@ -278,19 +278,31 @@ final class AppEnvironment: ObservableObject {
 
     // MARK: - Obsidian
 
-    func exportToObsidian() async {
+    /// Two notes for two jobs: the search list is what gets taken to Soulseek, the
+    /// record list is what is on a record once it is bought.
+    func exportToObsidian(_ document: ObsidianDocument) async {
         guard let service else {
-            status = "Noch keine Verbindung — Token pr\u{00FC}fen"
+            status = "Noch keine Verbindung — Token prüfen"
             return
         }
         do {
-            let export = ObsidianRenderer.render(
-                library: try service.library(kind: nil),
-                likes: try service.likedTracks(),
-                generatedAt: Date()
-            )
-            try await ObsidianWriter(directory: ObsidianWriter.defaultDirectory).write(export)
-            status = "Obsidian aktualisiert"
+            let now = Date()
+            let text: String
+            switch document {
+            case .searchList:
+                text = ObsidianRenderer.renderSearchList(
+                    likes: try service.likedTracks(), generatedAt: now
+                )
+            case .records:
+                text = ObsidianRenderer.renderRecords(
+                    library: try service.library(kind: nil),
+                    likes: try service.likedTracks(),
+                    generatedAt: now
+                )
+            }
+            try await ObsidianWriter(directory: ObsidianWriter.defaultDirectory)
+                .write(text, to: document)
+            status = "\(document.rawValue) geschrieben"
         } catch {
             status = "Obsidian: \(error)"
         }

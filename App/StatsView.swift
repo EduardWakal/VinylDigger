@@ -69,21 +69,31 @@ struct StatsView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             Button {
+                Task { await environment.exportToObsidian(.searchList) }
+            } label: {
+                Label("Suchliste", systemImage: "arrow.up.doc")
+            }
+            .buttonStyle(.borderedProminent)
+            .help("Gemochte Tracks als Suchzeilen für Nicotine+ in den Vault")
+
+            Button {
+                Task { await environment.exportToObsidian(.records) }
+            } label: {
+                Label("Platten + Tracklisten", systemImage: "arrow.up.doc.on.clipboard")
+            }
+            .help("Wantlist mit vollständiger Trackliste je Platte in den Vault")
+
+            Divider().frame(height: 18)
+
+            Button {
                 Task {
-                    await environment.exportToObsidian()
+                    await environment.suggestFromWantlist()
                     reload()
                 }
             } label: {
-                Label("Obsidian aktualisieren", systemImage: "arrow.up.doc")
+                Label("Neue Vorschläge", systemImage: "sparkle.magnifyingglass")
             }
-            .buttonStyle(.borderedProminent)
-
-            Button {
-                Task { await environment.suggestFromWantlist() }
-            } label: {
-                Label("Vorschläge aus Wantlist", systemImage: "sparkle.magnifyingglass")
-            }
-            .help("Graph von den Platten aus erweitern, die auf der Wantlist stehen")
+            .help("Graph aus Wantlist und gemochten Tracks erweitern und neu gewichten")
 
             Spacer()
 

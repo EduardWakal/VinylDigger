@@ -179,6 +179,15 @@ public final class AppDatabase {
                 """)
         }
 
+        migrator.registerMigration("v10") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "tracklist", .blob).notNull().defaults(to: Data("[]".utf8))
+            }
+            // Anything fetched before this column existed has to be read again to
+            // pick its tracklist up.
+            try db.execute(sql: "UPDATE release SET detailFetched = 0")
+        }
+
         return migrator
     }
 }

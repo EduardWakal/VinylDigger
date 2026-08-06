@@ -112,18 +112,37 @@ public actor QueueService {
 
             var adjustments: [WeightAdjustment] = []
             let releasesByID = Dictionary(uniqueKeysWithValues: releases.map { ($0.id, $0) })
+            let artistIDsByNameForSignals = Dictionary(
+                artists.map { ($0.name, $0.id) }, uniquingKeysWith: { first, _ in first }
+            )
+
+            var likesPerRelease: [Int: Int] = [:]
+            for like in try TrackLikeRecord.fetchAll(db) {
+                likesPerRelease[like.releaseID, default: 0] += 1
+            }
+
+            /// Every signal lands on both the label and the artist. Only crediting
+            /// the label meant an artist the user clearly likes gained nothing.
+            func credit(_ release: ReleaseRecord, _ delta: Double) {
+                guard delta != 0 else { return }
+                if let labelID = release.labelID {
+                    adjustments.append(WeightAdjustment(node: NodeID(kind: .label, id: labelID), delta: delta))
+                }
+                if let artistID = artistIDsByNameForSignals[release.artistName] {
+                    adjustments.append(WeightAdjustment(node: NodeID(kind: .artist, id: artistID), delta: delta))
+                }
+            }
 
             for decision in decisions {
-                guard let release = releasesByID[decision.releaseID], let labelID = release.labelID else { continue }
-                let delta = decision.kind.weightDelta
-                guard delta != 0 else { continue }
-                adjustments.append(WeightAdjustment(node: NodeID(kind: .label, id: labelID), delta: delta))
+                guard let release = releasesByID[decision.releaseID] else { continue }
+                credit(release, TasteSignal.decisionWeight(decision.kind))
             }
             for release in releases where release.owned {
-                guard let labelID = release.labelID else { continue }
-                adjustments.append(
-                    WeightAdjustment(node: NodeID(kind: .label, id: labelID), delta: Self.collectionWeightDelta)
-                )
+                credit(release, TasteSignal.owned)
+            }
+            for (releaseID, count) in likesPerRelease {
+                guard let release = releasesByID[releaseID] else { continue }
+                credit(release, TasteSignal.trackLikeWeight(count: count))
             }
 
             var weights = WeightPropagator.propagate(seeds: seeds, edges: edges, adjustments: adjustments)
@@ -136,6 +155,25 @@ public actor QueueService {
             for label in labels {
                 guard let manual = label.manualWeight else { continue }
                 weights[NodeID(kind: .label, id: label.id)] = manual
+            }
+
+            // The statistics tab reads stored weights, and a hand-set one always wins,
+            // so only the computed column is rewritten here.
+            for artist in artists {
+                let computed = weights[NodeID(kind: .artist, id: artist.id)] ?? 0
+                guard abs(computed - artist.weight) > 0.0001 else { continue }
+                try db.execute(
+                    sql: "UPDATE artist SET weight = ? WHERE id = ?",
+                    arguments: [max(computed, artist.weight >= 1.0 ? 1.0 : 0), artist.id]
+                )
+            }
+            for label in labels {
+                let computed = weights[NodeID(kind: .label, id: label.id)] ?? 0
+                guard abs(computed - label.weight) > 0.0001 else { continue }
+                try db.execute(
+                    sql: "UPDATE label SET weight = ? WHERE id = ?",
+                    arguments: [computed, label.id]
+                )
             }
 
             let latestDecision = Dictionary(
@@ -295,21 +333,29 @@ public actor QueueService {
         return wants.count
     }
 
-    /// Grows the graph outwards from everything on the wantlist — the records the
-    /// user actually wants are the best description of their taste the app has.
-    /// Returns how many releases were expanded from.
+    /// Grows the graph outwards from the records the user has spoken about, in the
+    /// order of how loudly they spoke: records carrying a marked track first, then
+    /// the wantlist. Returns how many records were expanded from.
     @discardableResult
-    public func expandFromWantlist(limit: Int = 10) async throws -> Int {
-        let loved = try database.read { db in
-            try DecisionRecord
+    public func expandFromTaste(limit: Int = 10) async throws -> Int {
+        let ordered = try database.read { db -> [Int] in
+            let liked = try TrackLikeRecord
+                .order(Column("likedAt").desc)
+                .fetchAll(db)
+                .map(\.releaseID)
+
+            let wanted = try DecisionRecord
                 .filter(Column("kind") == DecisionKind.love.rawValue)
                 .order(Column("decidedAt").desc)
                 .fetchAll(db)
                 .map(\.releaseID)
+
+            var seen = Set<Int>()
+            return (liked + wanted).filter { seen.insert($0).inserted }
         }
 
         var expanded = 0
-        for releaseID in loved.prefix(limit) {
+        for releaseID in ordered.prefix(limit) {
             // One bad lookup must not stop the rest — the next run picks it up.
             guard (try? await expand(from: releaseID)) != nil else { continue }
             expanded += 1
@@ -401,12 +447,16 @@ public actor QueueService {
             try db.execute(
                 sql: """
                     UPDATE release SET rating = ?, ratingCount = ?, want = ?, have = ?,
-                    coverURL = ?, detailFetched = 1 WHERE id = ?
+                    coverURL = ?, tracklist = ?, detailFetched = 1 WHERE id = ?
                     """,
                 arguments: [
                     release.community.rating.average, release.community.rating.count,
                     release.community.want, release.community.have,
-                    release.coverURL, releaseID
+                    release.coverURL,
+                    try JSONEncoder().encode(
+                        release.tracklist.map { ReleaseTrack(position: $0.position, title: $0.title) }
+                    ),
+                    releaseID
                 ]
             )
 

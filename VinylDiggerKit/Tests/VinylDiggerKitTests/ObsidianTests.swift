@@ -1,89 +1,158 @@
 import XCTest
 @testable import VinylDiggerKit
 
-final class ObsidianRendererTests: XCTestCase {
+final class ObsidianSearchListTests: XCTestCase {
     private let generatedAt = Date(timeIntervalSince1970: 1_770_000_000)
 
-    private func release(_ id: Int, _ title: String, year: Int? = 1999) -> ReleaseRecord {
-        ReleaseRecord(
-            id: id, title: title, artistName: "Inland Knights", year: year,
-            catno: "VIS0\(id)", labelID: 15, styles: ["Deep House"],
-            want: 582, have: 517, hydrated: true, rating: 4.22, ratingCount: 79
+    private func like(
+        _ title: String?, artist: String = "Mr. G", release: String = "J's Credit EP",
+        label: String? = "Bass Culture", position: String? = "B1", releaseID: Int = 1
+    ) -> LikedTrack {
+        LikedTrack(
+            releaseID: releaseID, releaseTitle: release, artistName: artist,
+            labelName: label, trackPosition: position, trackTitle: title,
+            youtubeID: "abc", likedAt: generatedAt
         )
     }
 
-    private func entry(_ id: Int, _ title: String, _ kind: DecisionKind, likes: Int = 0) -> LibraryEntry {
-        LibraryEntry(
-            release: release(id, title), labelName: "20:20 Vision", kind: kind,
-            decidedAt: generatedAt, likedTrackCount: likes
+    func testEachTrackIsACheckboxSearchLine() {
+        let text = ObsidianRenderer.renderSearchList(
+            likes: [like("Toi Toi")], generatedAt: generatedAt
         )
+
+        XCTAssertTrue(text.contains("- [ ] Mr. G - Toi Toi"))
     }
 
-    func testOverviewCountsDecisions() {
-        let export = ObsidianRenderer.render(
-            library: [
-                entry(1, "A", .love), entry(2, "B", .love),
-                entry(3, "C", .discard), entry(4, "D", .later)
-            ],
-            likes: [],
+    func testTheRecordIsCarriedAsAFallback() {
+        let text = ObsidianRenderer.renderSearchList(
+            likes: [like("Toi Toi")], generatedAt: generatedAt
+        )
+
+        XCTAssertTrue(text.contains("Platte: J's Credit EP · Bass Culture · B1"))
+        XCTAssertTrue(text.contains("youtube.com/watch?v=abc"))
+    }
+
+    func testATitleThatAlreadyNamesTheArtistIsNotDoubled() {
+        let text = ObsidianRenderer.renderSearchList(
+            likes: [like("Mr. G - Toi Toi")], generatedAt: generatedAt
+        )
+
+        XCTAssertTrue(text.contains("- [ ] Mr. G - Toi Toi"))
+        XCTAssertFalse(text.contains("Mr. G - Mr. G"))
+    }
+
+    func testCatalogueBracketsAreStrippedForTheSearch() {
+        let text = ObsidianRenderer.renderSearchList(
+            likes: [like("Late Night (Enzo Siragusa Remix) [VL011]", artist: "Satoshi Tomiie")],
             generatedAt: generatedAt
         )
 
-        XCTAssertTrue(export.overview.contains("# Vinylsammlung"))
-        XCTAssertTrue(export.overview.contains("| Wantlist ♥ | 2 |"))
-        XCTAssertTrue(export.overview.contains("| Später ↓ | 1 |"))
-        XCTAssertTrue(export.overview.contains("| Verworfen ✗ | 1 |"))
+        XCTAssertTrue(text.contains("Late Night (Enzo Siragusa Remix)"))
+        XCTAssertFalse(text.contains("[VL011]"))
     }
 
-    func testOverviewLinksTheExistingNotes() {
-        let export = ObsidianRenderer.render(library: [], likes: [], generatedAt: generatedAt)
+    func testATrackWithoutTitleStillGetsALine() {
+        let text = ObsidianRenderer.renderSearchList(likes: [like(nil)], generatedAt: generatedAt)
 
-        XCTAssertTrue(export.overview.contains("[[Musiksammlung]]"))
-        XCTAssertTrue(export.overview.contains("[[Dig Minimal-House Vinyl]]"))
+        XCTAssertTrue(text.contains("ohne Titel"))
     }
 
-    func testOverviewListsTopLabels() {
-        let export = ObsidianRenderer.render(
-            library: [entry(1, "A", .love), entry(2, "B", .love)],
+    func testAnEmptyListSaysSo() {
+        let text = ObsidianRenderer.renderSearchList(likes: [], generatedAt: generatedAt)
+
+        XCTAssertTrue(text.contains("Noch nichts markiert"))
+    }
+
+    func testItPointsAtTheExistingLibraryNote() {
+        let text = ObsidianRenderer.renderSearchList(likes: [], generatedAt: generatedAt)
+
+        XCTAssertTrue(text.contains("[[Musiksammlung - Trackliste]]"))
+    }
+}
+
+final class ObsidianRecordsTests: XCTestCase {
+    private let generatedAt = Date(timeIntervalSince1970: 1_770_000_000)
+
+    private func entry(
+        _ id: Int, tracklist: [ReleaseTrack], kind: DecisionKind = .love
+    ) -> LibraryEntry {
+        LibraryEntry(
+            release: ReleaseRecord(
+                id: id, title: "J's Credit EP", artistName: "Mr. G", year: 2013,
+                catno: "BCR035", labelID: 42, styles: [], want: 0, have: 0,
+                hydrated: true, rating: 4.39, ratingCount: 69, tracklist: tracklist
+            ),
+            labelName: "Bass Culture", kind: kind,
+            decidedAt: generatedAt, likedTrackCount: 0
+        )
+    }
+
+    func testEveryTrackOfTheRecordIsListed() {
+        let text = ObsidianRenderer.renderRecords(
+            library: [entry(1, tracklist: [
+                ReleaseTrack(position: "A1", title: "Let Down"),
+                ReleaseTrack(position: "B1", title: "Toi Toi")
+            ])],
             likes: [], generatedAt: generatedAt
         )
 
-        XCTAssertTrue(export.overview.contains("20:20 Vision"))
+        XCTAssertTrue(text.contains("### Mr. G — J's Credit EP"))
+        XCTAssertTrue(text.contains("**A1** Let Down"))
+        XCTAssertTrue(text.contains("**B1** Toi Toi"))
     }
 
-    func testTracklistGroupsWantlistByLabel() {
-        let export = ObsidianRenderer.render(
-            library: [entry(1, "Fresh Connections", .love)],
-            likes: [],
-            generatedAt: generatedAt
-        )
-
-        XCTAssertTrue(export.tracklist.contains("## 20:20 Vision"))
-        XCTAssertTrue(export.tracklist.contains("Inland Knights — Fresh Connections"))
-    }
-
-    func testTracklistShowsLikedTracksUnderTheirRelease() {
+    func testALikedTrackIsMarkedInsideTheTracklist() {
         let like = LikedTrack(
-            releaseID: 1, releaseTitle: "Fresh Connections", artistName: "Inland Knights",
-            labelName: "20:20 Vision", trackPosition: "B1", trackTitle: "Toi Toi",
+            releaseID: 1, releaseTitle: "J's Credit EP", artistName: "Mr. G",
+            labelName: "Bass Culture", trackPosition: "B1", trackTitle: "Toi Toi",
             youtubeID: "abc", likedAt: generatedAt
         )
-        let export = ObsidianRenderer.render(
-            library: [entry(1, "Fresh Connections", .love, likes: 1)],
-            likes: [like],
-            generatedAt: generatedAt
+        let text = ObsidianRenderer.renderRecords(
+            library: [entry(1, tracklist: [
+                ReleaseTrack(position: "A1", title: "Let Down"),
+                ReleaseTrack(position: "B1", title: "Toi Toi")
+            ])],
+            likes: [like], generatedAt: generatedAt
         )
 
-        XCTAssertTrue(export.tracklist.contains("B1 · Toi Toi"))
-        XCTAssertTrue(export.tracklist.contains("youtube.com/watch?v=abc"))
+        XCTAssertTrue(text.contains("**B1** Toi Toi  ♥"))
+        XCTAssertFalse(text.contains("Let Down  ♥"))
     }
 
-    func testDiscardedReleasesStayOutOfTheTracklist() {
-        let export = ObsidianRenderer.render(
-            library: [entry(9, "Nope", .discard)], likes: [], generatedAt: generatedAt
+    func testCatalogueAndRatingRideAlong() {
+        let text = ObsidianRenderer.renderRecords(
+            library: [entry(1, tracklist: [ReleaseTrack(position: "A1", title: "X")])],
+            likes: [], generatedAt: generatedAt
         )
 
-        XCTAssertFalse(export.tracklist.contains("Nope"))
+        XCTAssertTrue(text.contains("BCR035"))
+        XCTAssertTrue(text.contains("★ 4.39 (69)"))
+        XCTAssertTrue(text.contains("discogs.com/release/1"))
+    }
+
+    func testARecordWithoutATracklistSaysSoRatherThanLookingEmpty() {
+        let text = ObsidianRenderer.renderRecords(
+            library: [entry(1, tracklist: [])], likes: [], generatedAt: generatedAt
+        )
+
+        XCTAssertTrue(text.contains("Trackliste noch nicht geladen"))
+    }
+
+    func testOnlyWantlistRecordsAppear() {
+        let text = ObsidianRenderer.renderRecords(
+            library: [entry(9, tracklist: [], kind: .discard)],
+            likes: [], generatedAt: generatedAt
+        )
+
+        XCTAssertTrue(text.contains("Noch nichts auf der Wantlist"))
+    }
+
+    func testRecordsAreGroupedByLabel() {
+        let text = ObsidianRenderer.renderRecords(
+            library: [entry(1, tracklist: [])], likes: [], generatedAt: generatedAt
+        )
+
+        XCTAssertTrue(text.contains("## Bass Culture"))
     }
 }
 
@@ -140,29 +209,33 @@ final class ObsidianWriterTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func testWritesBothNotes() async throws {
+    func testWritesTheNoteItWasAskedFor() async throws {
         let writer = ObsidianWriter(directory: directory)
 
-        try await writer.write(ObsidianExport(overview: "# Übersicht", tracklist: "# Tracks"))
+        try await writer.write("# Tracks", to: .searchList)
 
-        let overview = try String(contentsOf: directory.appendingPathComponent("Vinylsammlung.md"))
-        let tracks = try String(
-            contentsOf: directory.appendingPathComponent("Vinylsammlung - Trackliste.md")
+        let text = try String(
+            contentsOf: directory.appendingPathComponent("Vinyl - Gesuchte Tracks.md")
         )
-        XCTAssertTrue(overview.contains("# Übersicht"))
-        XCTAssertTrue(tracks.contains("# Tracks"))
+        XCTAssertTrue(text.contains("# Tracks"))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("Vinylsammlung.md").path
+            ),
+            "the other note must not be touched"
+        )
     }
 
     func testSecondWriteKeepsHandWrittenPart() async throws {
         let writer = ObsidianWriter(directory: directory)
-        try await writer.write(ObsidianExport(overview: "# Eins", tracklist: "# Tracks"))
+        try await writer.write("# Eins", to: .records)
 
         let path = directory.appendingPathComponent("Vinylsammlung.md")
         var content = try String(contentsOf: path)
         content += "\nVon Hand ergänzt.\n"
         try content.write(to: path, atomically: true, encoding: .utf8)
 
-        try await writer.write(ObsidianExport(overview: "# Zwei", tracklist: "# Tracks"))
+        try await writer.write("# Zwei", to: .records)
 
         let after = try String(contentsOf: path)
         XCTAssertTrue(after.contains("# Zwei"))
@@ -174,7 +247,7 @@ final class ObsidianWriterTests: XCTestCase {
         let writer = ObsidianWriter(directory: directory.appendingPathComponent("fehlt"))
 
         do {
-            try await writer.write(ObsidianExport(overview: "x", tracklist: "y"))
+            try await writer.write("x", to: .records)
             XCTFail("expected a throw")
         } catch {}
     }

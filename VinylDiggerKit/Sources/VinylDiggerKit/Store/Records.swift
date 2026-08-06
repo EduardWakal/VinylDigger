@@ -73,6 +73,8 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
     public var ratingCount: Int
     /// Sleeve front from Discogs; nil until the release has been hydrated.
     public var coverURL: String?
+    /// Every track on the sleeve, not only the ones with a video.
+    public var tracklist: [ReleaseTrack]
     /// True once `/releases/{id}` has been read for this release. Rating alone is
     /// no marker — plenty of releases carry none, and those must not be refetched
     /// on every visit.
@@ -82,7 +84,8 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
         id: Int, title: String, artistName: String, year: Int?, catno: String?,
         labelID: Int?, styles: [String], want: Int, have: Int, hydrated: Bool,
         owned: Bool = false, rating: Double = 0, ratingCount: Int = 0,
-        coverURL: String? = nil, detailFetched: Bool = false
+        coverURL: String? = nil, detailFetched: Bool = false,
+        tracklist: [ReleaseTrack] = []
     ) {
         self.id = id
         self.title = title
@@ -99,6 +102,7 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
         self.ratingCount = ratingCount
         self.coverURL = coverURL
         self.detailFetched = detailFetched
+        self.tracklist = tracklist
     }
 }
 
@@ -134,6 +138,17 @@ public struct VideoRecord: Codable, FetchableRecord, MutablePersistableRecord, E
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
         id = inserted.rowID
+    }
+}
+
+/// One line of a record's tracklist as Discogs prints it on the sleeve.
+public struct ReleaseTrack: Codable, Equatable, Sendable {
+    public let position: String?
+    public let title: String
+
+    public init(position: String?, title: String) {
+        self.position = position
+        self.title = title
     }
 }
 
