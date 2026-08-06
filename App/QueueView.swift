@@ -219,7 +219,9 @@ private struct CoverView: View {
         }
         .frame(width: 128, height: 128)
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .task(id: releaseID) { await load() }
+        // Keyed on the URL too: hydration fills the cover in after the card is
+        // already on screen, and the release ID alone would not change then.
+        .task(id: "\(releaseID)|\(remote ?? "")") { await load() }
     }
 
     private func load() async {

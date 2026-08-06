@@ -134,6 +134,13 @@ public final class AppDatabase {
             }
         }
 
+        // Releases hydrated before v4 carry a rating but no cover, video duration or
+        // track position. hydrateRelease skips anything with a rating, so without this
+        // reset those rows would never pick the new fields up.
+        migrator.registerMigration("v5") { db in
+            try db.execute(sql: "UPDATE release SET rating = 0, ratingCount = 0")
+        }
+
         return migrator
     }
 }

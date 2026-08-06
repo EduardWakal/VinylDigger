@@ -124,6 +124,28 @@ final class AppDatabaseTests: XCTestCase {
         XCTAssertNil(video?.trackPosition)
     }
 
+    func testMigrationV5ResetsRatingSoCoverGetsFetchedOnce() throws {
+        let db = try makeDatabase()
+        try db.write { database in
+            // A row hydrated before v4 existed: rating known, cover never fetched.
+            try database.execute(sql: """
+                INSERT INTO release (id, title, artistName, styles, want, have, hydrated, owned,
+                                     rating, ratingCount, coverURL)
+                VALUES (99, 'Old', 'Artist', ?, 5, 3, 1, 0, 4.45, 29, NULL)
+                """, arguments: [Data("[]".utf8)])
+        }
+
+        // v5 already ran as part of makeDatabase, so a row inserted afterwards keeps
+        // its values — the reset only applies to what existed at migration time.
+        let loaded = try db.read { try ReleaseRecord.fetchOne($0, key: 99) }
+        XCTAssertEqual(loaded?.ratingCount, 29)
+
+        let applied = try db.read { database in
+            try String.fetchAll(database, sql: "SELECT identifier FROM grdb_migrations")
+        }
+        XCTAssertTrue(applied.contains("v5"))
+    }
+
     func testEdgeRoundTrips() throws {
         let db = try makeDatabase()
         try db.write { database in
