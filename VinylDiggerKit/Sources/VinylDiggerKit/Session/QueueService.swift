@@ -7,12 +7,17 @@ public struct QueueTrack: Equatable, Sendable {
     /// Discogs sleeve position such as "A1"; nil when it could not be matched.
     public let position: String?
     public let duration: Int?
+    public let liked: Bool
 
-    public init(youtubeID: String, title: String?, position: String?, duration: Int?) {
+    public init(
+        youtubeID: String, title: String?, position: String?,
+        duration: Int?, liked: Bool = false
+    ) {
         self.youtubeID = youtubeID
         self.title = title
         self.position = position
         self.duration = duration
+        self.liked = liked
     }
 }
 
@@ -64,11 +69,11 @@ public actor QueueService {
     public static let revisitInterval: TimeInterval = 30 * 86_400
     private static let collectionWeightDelta = 0.18
 
-    private let database: AppDatabase
+    let database: AppDatabase
     private let client: DiscogsClient
     private let outbox: OutboxProcessor
     private let username: String
-    private let now: @Sendable () -> Date
+    let now: @Sendable () -> Date
 
     public init(
         database: AppDatabase,
@@ -96,7 +101,7 @@ public actor QueueService {
             let releases = try ReleaseRecord.fetchAll(db)
             let decisions = try DecisionRecord.fetchAll(db)
 
-            let seeds = artists.filter { $0.weight >= 1.0 }.map { NodeID(kind: .artist, id: $0.id) }
+            let seeds = artists.filter { $0.effectiveWeight >= 1.0 }.map { NodeID(kind: .artist, id: $0.id) }
             let edges = edgeRecords.map {
                 GraphEdge(
                     from: NodeID(kind: $0.fromKind, id: $0.fromID),
@@ -121,7 +126,17 @@ public actor QueueService {
                 )
             }
 
-            let weights = WeightPropagator.propagate(seeds: seeds, edges: edges, adjustments: adjustments)
+            var weights = WeightPropagator.propagate(seeds: seeds, edges: edges, adjustments: adjustments)
+            // A hand-set weight wins over whatever the graph worked out, and keeps
+            // winning as the graph grows.
+            for artist in artists {
+                guard let manual = artist.manualWeight else { continue }
+                weights[NodeID(kind: .artist, id: artist.id)] = manual
+            }
+            for label in labels {
+                guard let manual = label.manualWeight else { continue }
+                weights[NodeID(kind: .label, id: label.id)] = manual
+            }
 
             let latestDecision = Dictionary(
                 decisions.map { ($0.releaseID, $0) },
@@ -131,6 +146,7 @@ public actor QueueService {
                 artists.map { ($0.name, $0.id) }, uniquingKeysWith: { first, _ in first }
             )
             let labelNames = Dictionary(labels.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            let likedKeys = Set(try TrackLikeRecord.fetchAll(db).map { "\($0.releaseID)|\($0.youtubeID)" })
 
             let candidates = releases.map { release in
                 ScoringCandidate(
@@ -181,7 +197,8 @@ public actor QueueService {
                     tracks: videos.map {
                         QueueTrack(
                             youtubeID: $0.youtubeID, title: $0.title,
-                            position: $0.trackPosition, duration: $0.duration
+                            position: $0.trackPosition, duration: $0.duration,
+                            liked: likedKeys.contains("\(release.id)|\($0.youtubeID)")
                         )
                     }
                 ))
@@ -243,6 +260,13 @@ public actor QueueService {
                 .order(Column("position"))
                 .fetchAll(db)
 
+            let likedIDs = Set(
+                try TrackLikeRecord
+                    .filter(Column("releaseID") == release.id)
+                    .fetchAll(db)
+                    .map(\.youtubeID)
+            )
+
             return QueueCard(
                 releaseID: release.id,
                 title: release.title,
@@ -260,7 +284,8 @@ public actor QueueService {
                 tracks: videos.map {
                     QueueTrack(
                         youtubeID: $0.youtubeID, title: $0.title,
-                        position: $0.trackPosition, duration: $0.duration
+                        position: $0.trackPosition, duration: $0.duration,
+                        liked: likedIDs.contains($0.youtubeID)
                     )
                 }
             )

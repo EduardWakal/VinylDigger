@@ -149,6 +149,25 @@ public final class AppDatabase {
             try db.execute(sql: "UPDATE release SET detailFetched = 1 WHERE coverURL IS NOT NULL")
         }
 
+        migrator.registerMigration("v7") { db in
+            try db.create(table: "track_like") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("releaseID", .integer).notNull().indexed()
+                t.column("youtubeID", .text).notNull()
+                t.column("likedAt", .datetime).notNull()
+                t.uniqueKey(["releaseID", "youtubeID"])
+            }
+        }
+
+        migrator.registerMigration("v8") { db in
+            try db.alter(table: "artist") { t in
+                t.add(column: "manualWeight", .double)
+            }
+            try db.alter(table: "label") { t in
+                t.add(column: "manualWeight", .double)
+            }
+        }
+
         return migrator
     }
 }

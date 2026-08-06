@@ -16,7 +16,10 @@ final class AppDatabaseTests: XCTestCase {
                 ORDER BY name
                 """)
         }
-        XCTAssertEqual(tables, ["artist", "decision", "edge", "label", "outbox", "queue_item", "release", "video"])
+        XCTAssertEqual(tables, [
+            "artist", "decision", "edge", "label", "outbox", "queue_item",
+            "release", "track_like", "video"
+        ])
     }
 
     func testArtistRoundTrips() throws {

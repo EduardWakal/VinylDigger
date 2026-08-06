@@ -8,13 +8,22 @@ public struct ArtistRecord: Codable, FetchableRecord, MutablePersistableRecord, 
     public var name: String
     public var weight: Double
     public var refreshedAt: Date?
+    /// Set by hand to override what the graph computed. nil hands control back.
+    public var manualWeight: Double?
 
-    public init(id: Int, name: String, weight: Double, refreshedAt: Date?) {
+    public init(
+        id: Int, name: String, weight: Double, refreshedAt: Date?,
+        manualWeight: Double? = nil
+    ) {
         self.id = id
         self.name = name
         self.weight = weight
         self.refreshedAt = refreshedAt
+        self.manualWeight = manualWeight
     }
+
+    /// What the queue should score against.
+    public var effectiveWeight: Double { manualWeight ?? weight }
 }
 
 public struct LabelRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
@@ -24,13 +33,22 @@ public struct LabelRecord: Codable, FetchableRecord, MutablePersistableRecord, E
     public var name: String
     public var weight: Double
     public var refreshedAt: Date?
+    /// Set by hand to override what the graph computed. nil hands control back.
+    public var manualWeight: Double?
 
-    public init(id: Int, name: String, weight: Double, refreshedAt: Date?) {
+    public init(
+        id: Int, name: String, weight: Double, refreshedAt: Date?,
+        manualWeight: Double? = nil
+    ) {
         self.id = id
         self.name = name
         self.weight = weight
         self.refreshedAt = refreshedAt
+        self.manualWeight = manualWeight
     }
+
+    /// What the queue should score against.
+    public var effectiveWeight: Double { manualWeight ?? weight }
 }
 
 public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
@@ -112,6 +130,28 @@ public struct VideoRecord: Codable, FetchableRecord, MutablePersistableRecord, E
         self.unavailable = unavailable
         self.duration = duration
         self.trackPosition = trackPosition
+    }
+
+    public mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+/// A single track marked as good. Discogs has no track-level list, so this layer
+/// is ours alone — a ♥ on the card still writes the whole release to the wantlist.
+public struct TrackLikeRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "track_like"
+
+    public var id: Int64?
+    public var releaseID: Int
+    public var youtubeID: String
+    public var likedAt: Date
+
+    public init(id: Int64?, releaseID: Int, youtubeID: String, likedAt: Date) {
+        self.id = id
+        self.releaseID = releaseID
+        self.youtubeID = youtubeID
+        self.likedAt = likedAt
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
