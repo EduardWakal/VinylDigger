@@ -4,6 +4,8 @@ import VinylDiggerKit
 struct QueueView: View {
     @EnvironmentObject private var environment: AppEnvironment
 
+    @State private var pickingTracks = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
@@ -25,6 +27,24 @@ struct QueueView: View {
         .frame(minWidth: 520, minHeight: 640)
         .background(PlayerHost(controller: environment.player).frame(width: 1, height: 1))
         .task { await environment.start() }
+        .sheet(isPresented: $pickingTracks) {
+            if let card = environment.currentCard {
+                TrackPickerView(card: card) { chosen in
+                    Task { await environment.loveWithTracks(chosen) }
+                }
+            }
+        }
+    }
+
+    /// A record with more than one track gets the picker — on an EP it is often a
+    /// single cut that earns the buy.
+    private func love() {
+        guard let card = environment.currentCard else { return }
+        if card.tracks.count > 1 {
+            pickingTracks = true
+        } else {
+            Task { await environment.loveWithTracks(card.tracks.map(\.youtubeID)) }
+        }
     }
 
     private var header: some View {
@@ -110,7 +130,7 @@ struct QueueView: View {
 
             Spacer()
 
-            Button("♥ Wantlist") { Task { await environment.decide(.love) } }
+            Button("♥ Wantlist") { love() }
                 .keyboardShortcut(.rightArrow, modifiers: [])
                 .buttonStyle(.borderedProminent)
         }

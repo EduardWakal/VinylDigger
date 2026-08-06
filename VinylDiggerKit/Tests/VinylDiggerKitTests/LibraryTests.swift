@@ -175,3 +175,74 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(try db.read { try ArtistRecord.fetchOne($0, key: 13320) }?.manualWeight, 0.25)
     }
 }
+
+final class NodeUpsertTests: XCTestCase {
+    private func database() throws -> AppDatabase {
+        let db = try AppDatabase.inMemory()
+        try db.write { database in
+            var seed = ArtistRecord(id: 13320, name: "Carl A. Finlow", weight: 1.0, refreshedAt: nil)
+            try seed.save(database)
+            var label = LabelRecord(id: 15, name: "20:20 Vision", weight: 0.6, refreshedAt: nil)
+            try label.save(database)
+        }
+        return db
+    }
+
+    func testUpsertKeepsExistingArtistWeight() throws {
+        let db = try database()
+        let stamp = Date(timeIntervalSince1970: 1_000_000)
+
+        try db.write { database in
+            try NodeUpsert.artist(id: 13320, name: "Carl A. Finlow", refreshedAt: stamp, in: database)
+        }
+
+        let stored = try db.read { try ArtistRecord.fetchOne($0, key: 13320) }
+        XCTAssertEqual(stored?.weight, 1.0, "a seed weight must survive an expansion")
+        XCTAssertEqual(stored?.refreshedAt, stamp)
+    }
+
+    func testUpsertInsertsUnknownArtistWithoutWeight() throws {
+        let db = try database()
+
+        try db.write { database in
+            try NodeUpsert.artist(id: 99, name: "Neu", refreshedAt: nil, in: database)
+        }
+
+        let stored = try db.read { try ArtistRecord.fetchOne($0, key: 99) }
+        XCTAssertEqual(stored?.name, "Neu")
+        XCTAssertEqual(stored?.weight, 0)
+    }
+
+    func testUpsertKeepsManualWeight() throws {
+        let db = try database()
+        try db.write { database in
+            try database.execute(sql: "UPDATE artist SET manualWeight = 0.42 WHERE id = 13320")
+        }
+
+        try db.write { database in
+            try NodeUpsert.artist(id: 13320, name: "Carl A. Finlow", refreshedAt: nil, in: database)
+        }
+
+        XCTAssertEqual(try db.read { try ArtistRecord.fetchOne($0, key: 13320) }?.manualWeight, 0.42)
+    }
+
+    func testUpsertKeepsExistingLabelWeight() throws {
+        let db = try database()
+
+        try db.write { database in
+            try NodeUpsert.label(id: 15, name: "20:20 Vision", in: database)
+        }
+
+        XCTAssertEqual(try db.read { try LabelRecord.fetchOne($0, key: 15) }?.weight, 0.6)
+    }
+
+    func testUpsertRefreshesTheName() throws {
+        let db = try database()
+
+        try db.write { database in
+            try NodeUpsert.label(id: 15, name: "20:20 Vision Recordings", in: database)
+        }
+
+        XCTAssertEqual(try db.read { try LabelRecord.fetchOne($0, key: 15) }?.name, "20:20 Vision Recordings")
+    }
+}

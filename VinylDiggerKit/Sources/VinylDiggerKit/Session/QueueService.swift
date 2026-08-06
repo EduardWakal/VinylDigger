@@ -348,14 +348,12 @@ public actor QueueService {
             let artist = try await client.artist(id: artistRef.id)
 
             try database.write { db in
-                var record = ArtistRecord(
-                    id: artist.id, name: artist.name, weight: 0.0, refreshedAt: self.now()
+                try NodeUpsert.artist(
+                    id: artist.id, name: artist.name, refreshedAt: self.now(), in: db
                 )
-                try record.save(db)
 
                 for alias in artist.aliases {
-                    var aliasRecord = ArtistRecord(id: alias.id, name: alias.name, weight: 0.0, refreshedAt: nil)
-                    try aliasRecord.save(db)
+                    try NodeUpsert.artist(id: alias.id, name: alias.name, refreshedAt: nil, in: db)
                     var edge = EdgeRecord(
                         id: nil, fromKind: .artist, fromID: artist.id,
                         toKind: .artist, toID: alias.id, kind: .alias
@@ -364,8 +362,7 @@ public actor QueueService {
                 }
 
                 for group in artist.groups {
-                    var groupRecord = ArtistRecord(id: group.id, name: group.name, weight: 0.0, refreshedAt: nil)
-                    try groupRecord.save(db)
+                    try NodeUpsert.artist(id: group.id, name: group.name, refreshedAt: nil, in: db)
                     var edge = EdgeRecord(
                         id: nil, fromKind: .artist, fromID: artist.id,
                         toKind: .artist, toID: group.id, kind: .group
@@ -392,8 +389,7 @@ public actor QueueService {
 
         for labelRef in release.labels {
             try database.write { db in
-                var record = LabelRecord(id: labelRef.id, name: labelRef.name, weight: 0.0, refreshedAt: nil)
-                try record.save(db)
+                try NodeUpsert.label(id: labelRef.id, name: labelRef.name, in: db)
                 try db.execute(
                     sql: "UPDATE release SET labelID = ? WHERE id = ?",
                     arguments: [labelRef.id, release.id]

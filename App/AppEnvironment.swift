@@ -19,12 +19,17 @@ final class AppEnvironment: ObservableObject {
     private(set) var database: AppDatabase?
     private var service: QueueService?
     private var client: DiscogsClient?
+    /// QueueView sits in a tab, and SwiftUI re-runs its task every time the tab
+    /// comes back. Without this the whole sync would restart on each switch.
+    private var started = false
 
     var currentCard: QueueCard? {
         cards.indices.contains(currentIndex) ? cards[currentIndex] : nil
     }
 
     func start() async {
+        guard !started else { return }
+        started = true
         do {
             let secrets = KeychainSecretStore()
             guard let username = try secrets.read(.discogsUsername), !username.isEmpty else {
@@ -53,6 +58,7 @@ final class AppEnvironment: ObservableObject {
             self.client = client
 
             try await bootstrapIfEmpty(database)
+            restoreSeeds(database)
 
             status = "Sammlung wird abgeglichen…"
             let owned = try await service.syncCollection()
@@ -62,8 +68,26 @@ final class AppEnvironment: ObservableObject {
             status = "\(cards.count) in der Queue · \(owned) in der Sammlung"
             loadCurrentCard()
         } catch {
+            started = false
             status = "Fehler: \(error)"
         }
+    }
+
+    /// Expansion used to wipe seed weights, which empties the queue. Putting them
+    /// back on every launch is cheap and repairs databases that already lost them.
+    private func restoreSeeds(_ database: AppDatabase) {
+        guard let url = Bundle.main.url(forResource: "dig_profile", withExtension: "json"),
+              let data = try? Data(contentsOf: url) else { return }
+        try? BootstrapImporter(database: database).restoreSeedWeights(profile: data)
+    }
+
+    /// Records the chosen tracks, then files the release on the wantlist.
+    func loveWithTracks(_ youtubeIDs: [String]) async {
+        guard let service, let card = currentCard else { return }
+        for id in youtubeIDs where !(card.tracks.first { $0.youtubeID == id }?.liked ?? false) {
+            _ = try? service.toggleTrackLike(releaseID: card.releaseID, youtubeID: id)
+        }
+        await decide(.love)
     }
 
     func decide(_ kind: DecisionKind) async {
