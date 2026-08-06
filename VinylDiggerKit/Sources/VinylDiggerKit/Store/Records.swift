@@ -55,12 +55,16 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
     public var ratingCount: Int
     /// Sleeve front from Discogs; nil until the release has been hydrated.
     public var coverURL: String?
+    /// True once `/releases/{id}` has been read for this release. Rating alone is
+    /// no marker — plenty of releases carry none, and those must not be refetched
+    /// on every visit.
+    public var detailFetched: Bool
 
     public init(
         id: Int, title: String, artistName: String, year: Int?, catno: String?,
         labelID: Int?, styles: [String], want: Int, have: Int, hydrated: Bool,
         owned: Bool = false, rating: Double = 0, ratingCount: Int = 0,
-        coverURL: String? = nil
+        coverURL: String? = nil, detailFetched: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -76,6 +80,7 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
         self.rating = rating
         self.ratingCount = ratingCount
         self.coverURL = coverURL
+        self.detailFetched = detailFetched
     }
 }
 

@@ -99,15 +99,76 @@ final class QueueServiceTests: XCTestCase {
         let (service, db) = try makeService(transport: transport)
         try seedGraph(db)
         try db.write { database in
-            try database.execute(
-                sql: "UPDATE release SET rating = 3.5, ratingCount = 12 WHERE id = 2831"
-            )
+            try database.execute(sql: """
+                UPDATE release SET rating = 3.5, ratingCount = 12, detailFetched = 1
+                WHERE id = 2831
+                """)
         }
 
         let stored = try await service.hydrateRelease(releaseID: 2831)
 
         XCTAssertEqual(stored.ratingCount, 12)
         XCTAssertTrue(transport.sentRequests.isEmpty)
+    }
+
+    func testHydrateReleaseIsSkippedOnceFetchedEvenWithoutRating() async throws {
+        let body = Data(#"""
+        {"id": 2831, "title": "Fresh Connections", "labels": [], "artists": [],
+         "community": {"want": 12, "have": 4, "rating": {"average": 0, "count": 0}}}
+        """#.utf8)
+        let transport = StubTransport(replies: [.init(body: body)])
+        let (service, db) = try makeService(transport: transport)
+        try seedGraph(db)
+
+        _ = try await service.hydrateRelease(releaseID: 2831)
+        XCTAssertEqual(transport.sentRequests.count, 1)
+
+        // An unrated release must not be fetched again on every visit.
+        _ = try await service.hydrateRelease(releaseID: 2831)
+        XCTAssertEqual(transport.sentRequests.count, 1)
+
+        let stored = try db.read { try ReleaseRecord.fetchOne($0, key: 2831) }
+        XCTAssertTrue(stored?.detailFetched ?? false)
+    }
+
+    func testRefreshedCardKeepsIdentityAndReasonButPicksUpNewDetail() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        let original = try service.rebuildQueue(limit: 10)[0]
+        XCTAssertNil(original.coverURL)
+
+        try db.write { database in
+            try database.execute(sql: """
+                UPDATE release SET rating = 4.22, ratingCount = 79,
+                coverURL = 'https://i.discogs.com/front.jpeg' WHERE id = 2831
+                """)
+            try database.execute(sql: """
+                UPDATE video SET title = 'Inland Knights - Fresh Connections',
+                duration = 451, trackPosition = 'B1' WHERE releaseID = 2831
+                """)
+        }
+
+        let refreshed = try service.refreshedCard(original)
+
+        XCTAssertEqual(refreshed.releaseID, original.releaseID)
+        XCTAssertEqual(refreshed.reason, original.reason)
+        XCTAssertEqual(refreshed.videoIDs, original.videoIDs)
+        XCTAssertEqual(refreshed.coverURL, "https://i.discogs.com/front.jpeg")
+        XCTAssertEqual(refreshed.rating ?? 0, 4.22, accuracy: 0.001)
+        XCTAssertEqual(refreshed.tracks[0].position, "B1")
+        XCTAssertEqual(refreshed.tracks[0].duration, 451)
+    }
+
+    func testRefreshedCardReturnsInputWhenReleaseVanished() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        let original = try service.rebuildQueue(limit: 10)[0]
+
+        try db.write { database in
+            try database.execute(sql: "DELETE FROM release WHERE id = 2831")
+        }
+
+        XCTAssertEqual(try service.refreshedCard(original), original)
     }
 
     func testRebuildQueueCarriesCoverAndTracksOntoCard() throws {

@@ -228,6 +228,45 @@ public actor QueueService {
 
     // MARK: - Expansion
 
+    /// Re-reads one card's release and videos without touching the queue order.
+    ///
+    /// Rebuilding the queue after a hydration would reshuffle it — the fetch writes
+    /// a fresh `want`, which feeds the score — and the card under the user's cursor
+    /// would silently become a different release.
+    public nonisolated func refreshedCard(_ card: QueueCard) throws -> QueueCard {
+        try database.read { db in
+            guard let release = try ReleaseRecord.fetchOne(db, key: card.releaseID) else {
+                return card
+            }
+            let videos = try VideoRecord
+                .filter(Column("releaseID") == release.id && Column("unavailable") == false)
+                .order(Column("position"))
+                .fetchAll(db)
+
+            return QueueCard(
+                releaseID: release.id,
+                title: release.title,
+                artistName: release.artistName,
+                labelName: card.labelName,
+                catno: release.catno,
+                year: release.year,
+                styles: release.styles,
+                want: release.want,
+                reason: card.reason,
+                videoIDs: videos.map(\.youtubeID),
+                rating: release.ratingCount > 0 ? release.rating : nil,
+                ratingCount: release.ratingCount,
+                coverURL: release.coverURL,
+                tracks: videos.map {
+                    QueueTrack(
+                        youtubeID: $0.youtubeID, title: $0.title,
+                        position: $0.trackPosition, duration: $0.duration
+                    )
+                }
+            )
+        }
+    }
+
     /// Fetches everything the card needs that the bootstrap dumps do not carry:
     /// rating, sleeve image, video titles, durations and track positions.
     /// A release is only ever fetched once.
@@ -236,7 +275,7 @@ public actor QueueService {
         let cached = try database.read { db in
             try ReleaseRecord.fetchOne(db, key: releaseID)
         }
-        if let cached, cached.ratingCount > 0 { return cached }
+        if let cached, cached.detailFetched { return cached }
 
         let release = try await client.release(id: releaseID)
         let positions = TrackMatcher.positions(
@@ -247,7 +286,7 @@ public actor QueueService {
             try db.execute(
                 sql: """
                     UPDATE release SET rating = ?, ratingCount = ?, want = ?, have = ?,
-                    coverURL = ? WHERE id = ?
+                    coverURL = ?, detailFetched = 1 WHERE id = ?
                     """,
                 arguments: [
                     release.community.rating.average, release.community.rating.count,

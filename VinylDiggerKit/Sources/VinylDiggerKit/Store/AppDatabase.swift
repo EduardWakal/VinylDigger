@@ -141,6 +141,14 @@ public final class AppDatabase {
             try db.execute(sql: "UPDATE release SET rating = 0, ratingCount = 0")
         }
 
+        migrator.registerMigration("v6") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "detailFetched", .boolean).notNull().defaults(to: false)
+            }
+            // Anything already carrying a cover went through the detail fetch.
+            try db.execute(sql: "UPDATE release SET detailFetched = 1 WHERE coverURL IS NOT NULL")
+        }
+
         return migrator
     }
 }

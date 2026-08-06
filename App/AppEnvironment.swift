@@ -5,6 +5,8 @@ import VinylDiggerKit
 
 @MainActor
 final class AppEnvironment: ObservableObject {
+    private static let prefetchDepth = 3
+
     @Published var cards: [QueueCard] = []
     @Published var currentIndex = 0
     @Published var status = "bereit"
@@ -127,20 +129,48 @@ final class AppEnvironment: ObservableObject {
             return
         }
         player.load(videoIDs: card.videoIDs)
-        guard card.rating == nil else { return }
-        Task { await hydrateCurrentCard(card.releaseID) }
+        Task {
+            await hydrateCurrentCard(card.releaseID)
+            await prefetchUpcoming()
+        }
+    }
+
+    /// Pulls detail for the next few cards so they are already filled in by the time
+    /// they come up. Bounded on purpose — the Discogs limiter allows 60 calls a
+    /// minute and the queue is long.
+    private func prefetchUpcoming() async {
+        guard let service else { return }
+        let upcoming = cards
+            .dropFirst(currentIndex + 1)
+            .prefix(Self.prefetchDepth)
+            .map(\.releaseID)
+
+        for releaseID in upcoming {
+            guard (try? await service.hydrateRelease(releaseID: releaseID)) != nil else { continue }
+            guard
+                let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
+                let refreshed = try? service.refreshedCard(cards[index])
+            else { continue }
+            cards[index] = refreshed
+        }
     }
 
     /// The extra detail costs one API call, so it is fetched only for the card on
-    /// screen. A failure is silent — the card stays usable without it.
+    /// screen, and only the card itself is replaced afterwards — rebuilding the
+    /// queue here would reorder it and swap the release out from under the player.
     private func hydrateCurrentCard(_ releaseID: Int) async {
-        guard let service, (try? await service.hydrateRelease(releaseID: releaseID)) != nil else {
+        guard let service else { return }
+        do {
+            try await service.hydrateRelease(releaseID: releaseID)
+        } catch {
+            status = "Details nicht geladen: \(error)"
             return
         }
-        guard let refreshed = try? service.rebuildQueue(limit: 50) else { return }
-        let keepIndex = currentIndex
-        cards = refreshed
-        currentIndex = min(keepIndex, max(refreshed.count - 1, 0))
+        guard
+            let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
+            let refreshed = try? service.refreshedCard(cards[index])
+        else { return }
+        cards[index] = refreshed
     }
 
     private func bootstrapIfEmpty(_ database: AppDatabase) async throws {
