@@ -3,7 +3,10 @@ import XCTest
 
 final class QueuePlannerTests: XCTestCase {
     private func item(_ id: Int, label: Int?, score: Double) -> ScoredRelease {
-        ScoredRelease(releaseID: id, score: score, labelID: label, reason: "test")
+        ScoredRelease(
+            releaseID: id, score: score, labelID: label,
+            artistIDs: [id], reason: "test"
+        )
     }
 
     func testKeepsOrderWhenLabelsAlternate() {
@@ -16,16 +19,21 @@ final class QueuePlannerTests: XCTestCase {
         XCTAssertEqual(planned.map(\.releaseID), [1, 2, 3])
     }
 
-    func testBreaksUpFourthConsecutiveSameLabel() {
+    func testAnotherLabelBreaksIntoALongRun() {
         let input = [
             item(1, label: 10, score: 9),
             item(2, label: 10, score: 8),
             item(3, label: 10, score: 7),
             item(4, label: 10, score: 6),
-            item(5, label: 20, score: 1)
+            item(5, label: 20, score: 3)
         ]
         let planned = QueuePlanner.plan(input, limit: 10)
-        XCTAssertEqual(planned.map(\.releaseID), [1, 2, 3, 5, 4])
+
+        // Every one is kept; the outsider is pulled forward instead of trailing.
+        XCTAssertEqual(planned.count, 5)
+        XCTAssertEqual(planned.first?.releaseID, 1)
+        let outsider = planned.firstIndex { $0.releaseID == 5 }!
+        XCTAssertLessThan(outsider, 4, "the second label must not be left until last")
     }
 
     func testDeferredItemReturnsWhenNoAlternativeRemains() {

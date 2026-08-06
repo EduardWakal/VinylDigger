@@ -140,15 +140,21 @@ struct QueueView: View {
 
     private var controls: some View {
         HStack(spacing: 12) {
-            Button("✗ weg") { Task { await environment.decide(.discard) } }
+            Button { Task { await environment.decide(.discard) } } label: {
+                Label("weg", systemImage: "xmark")
+            }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
 
-            Button("↓ später") { Task { await environment.decide(.later) } }
+            Button { Task { await environment.decide(.later) } } label: {
+                Label("später", systemImage: "clock.arrow.circlepath")
+            }
                 .keyboardShortcut(.downArrow, modifiers: [.command])
 
             Spacer()
 
-            Button("♥ Wantlist") { love() }
+            Button { love() } label: {
+                Label("Wantlist", systemImage: "eye.fill")
+            }
                 .keyboardShortcut(.rightArrow, modifiers: [.command])
                 .buttonStyle(.borderedProminent)
         }
@@ -195,11 +201,11 @@ private struct TrackList: View {
                     Button {
                         onToggleLike(track.youtubeID)
                     } label: {
-                        Image(systemName: track.liked ? "star.fill" : "star")
-                            .foregroundStyle(track.liked ? AnyShapeStyle(.yellow) : AnyShapeStyle(.tertiary))
+                        Image(systemName: track.liked ? "heart.fill" : "heart")
+                            .foregroundStyle(track.liked ? AnyShapeStyle(.pink) : AnyShapeStyle(.tertiary))
                     }
                     .buttonStyle(.borderless)
-                    .help(track.liked ? "Markierung entfernen" : "Track markieren")
+                    .help(track.liked ? "Track nicht mehr mögen" : "Track mögen")
                 }
             }
         }
@@ -263,17 +269,41 @@ private struct TransportView: View {
             .disabled(player.duration <= 0)
 
             HStack(spacing: 8) {
-                Button("\u{23EE}") { player.restart() }
-                Button("\u{2212}10 s") { player.seek(by: -10) }
-                    .keyboardShortcut("[", modifiers: [])
-                Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayPause() }
-                    .keyboardShortcut(.space, modifiers: [])
-                Button("+10 s") { player.seek(by: 10) }
-                    .keyboardShortcut("]", modifiers: [])
-                Button("\u{23ED}") { player.nextVideo() }
-                Button("\u{2605} L") { onLikeCurrent() }
-                    .keyboardShortcut("l", modifiers: [])
-                    .help("laufende Spur markieren")
+                Button { player.restart() } label: {
+                    Image(systemName: "backward.end.fill")
+                }
+                .help("von vorn")
+
+                Button { player.seek(by: -10) } label: {
+                    Image(systemName: "gobackward.10")
+                }
+                .keyboardShortcut("[", modifiers: [])
+                .help("10 Sekunden zurück")
+
+                Button { player.togglePlayPause() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .frame(width: 14)
+                }
+                .keyboardShortcut(.space, modifiers: [])
+                .help(player.isPlaying ? "Pause" : "Wiedergabe")
+
+                Button { player.seek(by: 10) } label: {
+                    Image(systemName: "goforward.10")
+                }
+                .keyboardShortcut("]", modifiers: [])
+                .help("10 Sekunden vor")
+
+                Button { player.nextVideo() } label: {
+                    Image(systemName: "forward.end.fill")
+                }
+                .help("nächste Spur")
+
+                Button { onLikeCurrent() } label: {
+                    Image(systemName: "heart")
+                }
+                .keyboardShortcut("l", modifiers: [])
+                .help("laufende Spur mögen")
+
                 Spacer()
             }
             .disabled(!player.hasLoadedVideo)

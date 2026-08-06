@@ -148,6 +148,10 @@ public actor QueueService {
             let labelNames = Dictionary(labels.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
             let likedKeys = Set(try TrackLikeRecord.fetchAll(db).map { "\($0.releaseID)|\($0.youtubeID)" })
 
+            let releasesWithVideo = Set(
+                try Int.fetchAll(db, sql: "SELECT DISTINCT releaseID FROM video WHERE unavailable = 0")
+            )
+
             let candidates = releases.map { release in
                 ScoringCandidate(
                     releaseID: release.id,
@@ -156,7 +160,8 @@ public actor QueueService {
                     want: release.want,
                     isDecided: latestDecision[release.id] != nil,
                     isOwned: release.owned,
-                    revisitAt: latestDecision[release.id]?.revisitAt
+                    revisitAt: latestDecision[release.id]?.revisitAt,
+                    preview: previewState(for: release, hasVideo: releasesWithVideo.contains(release.id))
                 )
             }
 
@@ -206,6 +211,15 @@ public actor QueueService {
 
             return cards
         }
+    }
+
+    /// Only a release whose detail has been read can be called unplayable — before
+    /// that the absence of videos means nobody looked yet.
+    private nonisolated func previewState(
+        for release: ReleaseRecord, hasVideo: Bool
+    ) -> PreviewState {
+        if hasVideo { return .available }
+        return release.detailFetched ? PreviewState.none : .unknown
     }
 
     // MARK: - Decisions
