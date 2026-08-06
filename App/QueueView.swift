@@ -10,7 +10,7 @@ struct QueueView: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             Divider()
-            if let card = environment.currentCard {
+            if let card = environment.displayedCard {
                 // Some records carry a dozen tracks; the card has to give way.
                 ScrollView { cardBody(card) }
             } else {
@@ -33,7 +33,7 @@ struct QueueView: View {
         .background(PlayerHost(controller: environment.player).frame(width: 1, height: 1))
         .task { await environment.start() }
         .sheet(isPresented: $pickingTracks) {
-            if let card = environment.currentCard {
+            if let card = environment.displayedCard {
                 TrackPickerView(card: card) { chosen in
                     Task { await environment.loveWithTracks(chosen) }
                 }
@@ -44,7 +44,7 @@ struct QueueView: View {
     /// A record with more than one track gets the picker — on an EP it is often a
     /// single cut that earns the buy.
     private func love() {
-        guard let card = environment.currentCard else { return }
+        guard let card = environment.displayedCard else { return }
         if card.tracks.count > 1 {
             pickingTracks = true
         } else {
@@ -54,26 +54,45 @@ struct QueueView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Button {
-                environment.goBack()
-            } label: {
-                Image(systemName: "chevron.left")
+            if environment.mode == .inspect {
+                Button {
+                    environment.backToDig()
+                } label: {
+                    Label("Diggen", systemImage: "shovel")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.escape, modifiers: [])
+                .help("zurück zur Warteschlange")
             }
-            .keyboardShortcut(.leftArrow, modifiers: [])
-            .disabled(!environment.canGoBack)
-            .help("vorige Platte")
 
-            Button {
-                environment.goForward()
-            } label: {
-                Image(systemName: "chevron.right")
+            if environment.mode == .dig {
+                Button {
+                    environment.goBack()
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+                .disabled(!environment.canGoBack)
+                .help("vorige Platte")
+
+                Button {
+                    environment.goForward()
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+                .disabled(!environment.canGoForward)
+                .help("nächste Platte")
             }
-            .keyboardShortcut(.rightArrow, modifiers: [])
-            .disabled(!environment.canGoForward)
-            .help("nächste Platte")
 
-            Text("\(environment.currentIndex + 1) / \(max(environment.cards.count, 1))")
-                .font(.system(.caption, design: .monospaced))
+            if environment.mode == .dig {
+                Text("\(environment.currentIndex + 1) / \(max(environment.cards.count, 1))")
+                    .font(.system(.caption, design: .monospaced))
+            } else {
+                Text("aus der Sammlung")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Text(environment.status)
                 .font(.caption)
@@ -139,7 +158,25 @@ struct QueueView: View {
         }
     }
 
+    @ViewBuilder
     private var controls: some View {
+        if environment.mode == .inspect {
+            HStack(spacing: 12) {
+                Text("Herz an einer Spur markiert einzelne Tracks.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button { love() } label: {
+                    Label("Wantlist", systemImage: "eye.fill")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else {
+            digControls
+        }
+    }
+
+    private var digControls: some View {
         HStack(spacing: 12) {
             Button { Task { await environment.decide(.discard) } } label: {
                 Label("weg", systemImage: "xmark")

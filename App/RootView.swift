@@ -6,11 +6,10 @@ import VinylDiggerKit
 struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
 
-    /// Always opens on the player — that is the tab the app exists for.
-    @State private var tab = 0
-
     var body: some View {
-        TabView(selection: $tab) {
+        // The selection lives in the environment so the library can send a record
+        // over to the player.
+        TabView(selection: $environment.selectedTab) {
             QueueView()
                 .tabItem { Label("Player", systemImage: "play.circle") }
                 .tag(0)

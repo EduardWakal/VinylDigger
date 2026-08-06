@@ -4,122 +4,191 @@ import VinylDiggerKit
 struct LibraryView: View {
     @EnvironmentObject private var environment: AppEnvironment
 
-    @State private var filter: DecisionKind? = .love
+    /// Four record filters plus the track list, which is a different shape of thing
+    /// entirely — single tracks, not records.
+    private enum Selection: Hashable {
+        case decision(DecisionKind)
+        case all
+        case tracks
+    }
+
+    @State private var selection: Selection = .decision(.love)
     @State private var entries: [LibraryEntry] = []
+    @State private var likes: [LikedTrack] = []
     @State private var counts: [DecisionKind: Int] = [:]
-    @State private var ownedCount = 0
+    @State private var total = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             picker
             Divider()
-
-            if entries.isEmpty {
-                ContentUnavailableView(
-                    "Nichts hier",
-                    systemImage: "square.stack",
-                    description: Text("Entscheide im Player, dann füllt sich diese Liste.")
-                )
-                .frame(maxHeight: .infinity)
-            } else {
-                List(entries, id: \.release.id) { entry in
-                    row(entry)
-                }
-                .listStyle(.inset)
-            }
-
+            content
             Divider()
             footer
         }
-        .onAppear(perform: reload)
-        .onChange(of: filter) { _, _ in reload() }
+        .onAppear {
+            reload()
+            Task {
+                await environment.hydrateLibrary()
+                reload()
+            }
+        }
+        .onChange(of: selection) { _, _ in reload() }
     }
 
     private var picker: some View {
         HStack(spacing: 8) {
-            chip("👁 Wantlist", count: counts[.love] ?? 0, kind: .love)
-            chip("↓ später", count: counts[.later] ?? 0, kind: .later)
-            chip("✗ weg", count: counts[.discard] ?? 0, kind: .discard)
-            chip("alle", count: entriesTotal, kind: nil)
+            chip("Wantlist", systemImage: "eye.fill",
+                 count: counts[.love] ?? 0, value: .decision(.love))
+            chip("später", systemImage: "clock.arrow.circlepath",
+                 count: counts[.later] ?? 0, value: .decision(.later))
+            chip("weg", systemImage: "xmark",
+                 count: counts[.discard] ?? 0, value: .decision(.discard))
+            chip("alle", systemImage: "square.stack", count: total, value: .all)
+
+            Divider().frame(height: 18)
+
+            chip("Tracks", systemImage: "heart.fill", count: likes.count, value: .tracks)
             Spacer()
-            Text("◉ besessen \(ownedCount)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .padding(12)
     }
 
-    private var entriesTotal: Int {
-        (counts[.love] ?? 0) + (counts[.later] ?? 0) + (counts[.discard] ?? 0)
+    private func chip(
+        _ title: String, systemImage: String, count: Int, value: Selection
+    ) -> some View {
+        Button {
+            selection = value
+        } label: {
+            Label("\(title) \(count)", systemImage: systemImage)
+        }
+        .buttonStyle(.bordered)
+        .tint(selection == value ? .accentColor : .secondary)
     }
 
-    private func chip(_ label: String, count: Int, kind: DecisionKind?) -> some View {
-        Button("\(label) \(count)") { filter = kind }
-            .buttonStyle(.bordered)
-            .tint(filter == kind ? .accentColor : .secondary)
-    }
-
-    private func row(_ entry: LibraryEntry) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            CoverThumb(
-                releaseID: entry.release.id,
-                remote: entry.release.coverURL,
-                store: environment.covers
-            )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.release.artistName)
-                    .font(.headline)
-                Text(entry.release.title)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 8) {
-                    if let label = entry.labelName { Text(label) }
-                    if let catno = entry.release.catno { Text(catno) }
-                    if let year = entry.release.year { Text(String(year)) }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                HStack(spacing: 12) {
-                    if entry.release.ratingCount > 0 {
-                        Label(
-                            String(
-                                format: "%.2f (%d)",
-                                entry.release.rating, entry.release.ratingCount
-                            ),
-                            systemImage: "star.fill"
-                        )
-                    }
-                    if entry.likedTrackCount > 0 {
-                        Label("\(entry.likedTrackCount) Tracks", systemImage: "heart.fill")
-                    }
-                    Link(
-                        "Discogs",
-                        destination: URL(string: "https://www.discogs.com/release/\(entry.release.id)")!
-                    )
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    @ViewBuilder
+    private var content: some View {
+        switch selection {
+        case .tracks:
+            if likes.isEmpty {
+                empty("Noch keine Tracks", "Im Player das Herz neben einer Spur klicken.")
+            } else {
+                List(likes, id: \.youtubeID) { trackRow($0) }
+                    .listStyle(.inset)
             }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 6) {
-                Text(entry.decidedAt, style: .date)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-
-                Button {
-                    environment.playFromLibrary(releaseID: entry.release.id)
-                } label: {
-                    Image(systemName: "play.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("im Player abspielen")
+        default:
+            if entries.isEmpty {
+                empty("Nichts hier", "Entscheide im Player, dann füllt sich diese Liste.")
+            } else {
+                List(entries, id: \.release.id) { releaseRow($0) }
+                    .listStyle(.inset)
             }
         }
-        .padding(.vertical, 4)
+    }
+
+    private func empty(_ title: String, _ hint: String) -> some View {
+        ContentUnavailableView(title, systemImage: "square.stack", description: Text(hint))
+            .frame(maxHeight: .infinity)
+    }
+
+    /// The whole row opens the record in the player — that is where the tracks are.
+    private func releaseRow(_ entry: LibraryEntry) -> some View {
+        Button {
+            Task { await environment.openInPlayer(releaseID: entry.release.id) }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                CoverThumb(
+                    releaseID: entry.release.id,
+                    remote: entry.release.coverURL,
+                    store: environment.covers
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.release.artistName)
+                        .font(.headline)
+                    Text(entry.release.title)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        if let label = entry.labelName { Text(label) }
+                        if let catno = entry.release.catno { Text(catno) }
+                        if let year = entry.release.year { Text(String(year)) }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    HStack(spacing: 12) {
+                        if entry.release.ratingCount > 0 {
+                            Label(
+                                String(
+                                    format: "%.2f (%d)",
+                                    entry.release.rating, entry.release.ratingCount
+                                ),
+                                systemImage: "star.fill"
+                            )
+                        }
+                        if entry.likedTrackCount > 0 {
+                            Label("\(entry.likedTrackCount)", systemImage: "heart.fill")
+                                .foregroundStyle(.pink)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(entry.decidedAt, style: .date)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "play.circle")
+                        .foregroundStyle(.tint)
+                }
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func trackRow(_ like: LikedTrack) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                environment.toggleLike(releaseID: like.releaseID, youtubeID: like.youtubeID)
+                reload()
+            } label: {
+                Image(systemName: "heart.fill").foregroundStyle(.pink)
+            }
+            .buttonStyle(.borderless)
+            .help("nicht mehr mögen")
+
+            Text(like.trackPosition ?? "—")
+                .font(.system(.caption, design: .monospaced))
+                .frame(width: 28, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(like.trackTitle ?? "ohne Titel")
+                Text("\(like.artistName) · \(like.releaseTitle)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            if let label = like.labelName {
+                Text(label).font(.caption).foregroundStyle(.tertiary)
+            }
+
+            Button {
+                Task { await environment.openInPlayer(releaseID: like.releaseID) }
+            } label: {
+                Image(systemName: "play.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Platte im Player öffnen")
+        }
+        .padding(.vertical, 2)
     }
 
     private var footer: some View {
@@ -131,7 +200,7 @@ struct LibraryView: View {
                 }
             }
             Spacer()
-            Text("\(entries.count) Einträge")
+            Text(selection == .tracks ? "\(likes.count) Tracks" : "\(entries.count) Platten")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -139,10 +208,16 @@ struct LibraryView: View {
     }
 
     private func reload() {
-        entries = environment.library(kind: filter)
         let all = environment.library(kind: nil)
         counts = Dictionary(grouping: all, by: \.kind).mapValues(\.count)
-        ownedCount = all.filter { $0.release.owned }.count
+        total = all.count
+        likes = environment.likedTracks()
+
+        switch selection {
+        case .decision(let kind): entries = environment.library(kind: kind)
+        case .all: entries = all
+        case .tracks: entries = []
+        }
     }
 }
 
@@ -159,7 +234,11 @@ struct CoverThumb: View {
             if let image {
                 Image(nsImage: image).resizable().aspectRatio(1, contentMode: .fill)
             } else {
-                RoundedRectangle(cornerRadius: 3).fill(.quaternary)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(.quaternary)
+                    .overlay {
+                        Image(systemName: "opticaldisc").foregroundStyle(.tertiary)
+                    }
             }
         }
         .frame(width: 48, height: 48)

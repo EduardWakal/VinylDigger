@@ -347,3 +347,56 @@ final class WantlistSyncTests: XCTestCase {
         XCTAssertEqual(release?.want, 99, "a hydrated release must not be overwritten by the stub")
     }
 }
+
+final class CardForReleaseTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    private func makeService() throws -> (QueueService, AppDatabase) {
+        let db = try AppDatabase.inMemory()
+        let secrets = InMemorySecretStore()
+        try secrets.write("tok", for: .discogsToken)
+        let client = DiscogsClient(
+            transport: StubTransport(replies: []), secrets: secrets,
+            limiter: RateLimiter(capacity: 100, refillPerSecond: 100),
+            userAgent: "VinylDiggerTests/1.0"
+        )
+        let outbox = OutboxProcessor(database: db, writer: client, username: "s", now: { self.now })
+        return (
+            QueueService(database: db, client: client, outbox: outbox, username: "s", now: { self.now }),
+            db
+        )
+    }
+
+    func testBuildsACardForARecordThatIsNotInTheQueue() throws {
+        let (service, db) = try makeService()
+        try db.write { database in
+            var label = LabelRecord(id: 42, name: "Bass Culture", weight: 0, refreshedAt: nil)
+            try label.save(database)
+            var release = ReleaseRecord(
+                id: 5040318, title: "J's Credit EP", artistName: "Mr. G", year: 2013,
+                catno: "BCR035", labelID: 42, styles: ["Deep House"], want: 30, have: 10,
+                hydrated: true, rating: 4.2, ratingCount: 11
+            )
+            try release.save(database)
+            var video = VideoRecord(
+                id: nil, releaseID: 5040318, youtubeID: "abc", title: "Mr G - Toi Toi",
+                position: 0, unavailable: false, duration: 451, trackPosition: "B1"
+            )
+            try video.insert(database)
+        }
+
+        let card = try service.card(forReleaseID: 5040318)
+
+        XCTAssertEqual(card.title, "J's Credit EP")
+        XCTAssertEqual(card.artistName, "Mr. G")
+        XCTAssertEqual(card.labelName, "Bass Culture")
+        XCTAssertEqual(card.tracks.count, 1)
+        XCTAssertEqual(card.tracks[0].position, "B1")
+        XCTAssertEqual(card.rating ?? 0, 4.2, accuracy: 0.001)
+    }
+
+    func testUnknownReleaseThrows() throws {
+        let (service, _) = try makeService()
+        XCTAssertThrowsError(try service.card(forReleaseID: 999))
+    }
+}

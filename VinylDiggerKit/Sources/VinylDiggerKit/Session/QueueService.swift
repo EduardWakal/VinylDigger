@@ -319,6 +319,20 @@ public actor QueueService {
 
     // MARK: - Expansion
 
+    /// Builds a card for any release, whether or not it is in the queue — the
+    /// library needs one for records that were decided long ago.
+    public nonisolated func card(forReleaseID releaseID: Int) throws -> QueueCard {
+        let stub = QueueCard(
+            releaseID: releaseID, title: "", artistName: "", labelName: nil,
+            catno: nil, year: nil, styles: [], want: 0, reason: "", videoIDs: []
+        )
+        let card = try refreshedCard(stub)
+        guard card.releaseID == releaseID, !card.title.isEmpty || !card.artistName.isEmpty else {
+            throw DiscogsError.transport
+        }
+        return card
+    }
+
     /// Re-reads one card's release and videos without touching the queue order.
     ///
     /// Rebuilding the queue after a hydration would reshuffle it — the fetch writes
@@ -345,7 +359,9 @@ public actor QueueService {
                 releaseID: release.id,
                 title: release.title,
                 artistName: release.artistName,
-                labelName: card.labelName,
+                labelName: release.labelID.flatMap { labelID in
+                    try? LabelRecord.fetchOne(db, key: labelID)?.name
+                } ?? card.labelName,
                 catno: release.catno,
                 year: release.year,
                 styles: release.styles,

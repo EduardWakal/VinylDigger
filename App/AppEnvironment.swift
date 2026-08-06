@@ -10,6 +10,17 @@ final class AppEnvironment: ObservableObject {
     @Published var cards: [QueueCard] = []
     @Published var currentIndex = 0
     @Published var status = "bereit"
+    @Published var selectedTab = 0
+
+    /// The player shows either the queue (digging) or one record picked from the
+    /// library. Same card view either way — only the controls below it change.
+    enum PlayerMode { case dig, inspect }
+    @Published var mode: PlayerMode = .dig
+    @Published var inspected: QueueCard?
+
+    var displayedCard: QueueCard? {
+        mode == .inspect ? inspected : currentCard
+    }
 
     let player = PlayerController()
     let covers = CoverStore(
@@ -68,6 +79,10 @@ final class AppEnvironment: ObservableObject {
             currentIndex = 0
             status = "\(cards.count) in der Queue · \(owned) in der Sammlung"
             loadCurrentCard()
+
+            // Wantlist records never reach the queue, so nothing would ever fetch
+            // their covers. Fill them in quietly behind the first cards.
+            Task { await hydrateLibrary(limit: 40) }
         } catch {
             started = false
             status = "Fehler: \(error)"
@@ -164,15 +179,19 @@ final class AppEnvironment: ObservableObject {
         return (try? service.likedTracks()) ?? []
     }
 
-    /// Flips the like on one track of the card on screen and refreshes just that card.
+    /// Flips the like on one track and refreshes whichever card is showing it.
     func toggleLike(releaseID: Int, youtubeID: String) {
         guard let service else { return }
         _ = try? service.toggleTrackLike(releaseID: releaseID, youtubeID: youtubeID)
-        guard
-            let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
-            let refreshed = try? service.refreshedCard(cards[index])
-        else { return }
-        cards[index] = refreshed
+
+        if let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
+           let refreshed = try? service.refreshedCard(cards[index]) {
+            cards[index] = refreshed
+        }
+        if let inspected, inspected.releaseID == releaseID,
+           let refreshed = try? service.refreshedCard(inspected) {
+            self.inspected = refreshed
+        }
     }
 
     /// Marks whatever is playing, which is not always a track of the card on screen.
@@ -182,18 +201,30 @@ final class AppEnvironment: ObservableObject {
         toggleLike(releaseID: card.releaseID, youtubeID: id)
     }
 
-    /// Plays a record straight from the library, without disturbing the queue.
-    func playFromLibrary(releaseID: Int) {
+    /// Opens one record from the library in the player: fetches whatever is still
+    /// missing, shows its tracks, and leaves the queue untouched.
+    func openInPlayer(releaseID: Int) async {
         guard let service else { return }
-        let card = cards.first { $0.releaseID == releaseID }
-            ?? (try? service.refreshedCard(QueueCard(
-                releaseID: releaseID, title: "", artistName: "", labelName: nil,
-                catno: nil, year: nil, styles: [], want: 0, reason: "", videoIDs: []
-            )))
-        guard let card, !card.videoIDs.isEmpty else {
-            status = "Kein Preview für diese Platte"
+        try? await service.hydrateRelease(releaseID: releaseID)
+
+        guard let card = try? service.card(forReleaseID: releaseID) else {
+            status = "Platte nicht gefunden"
             return
         }
+        inspected = card
+        mode = .inspect
+        selectedTab = 0
+        loadIntoPlayer(card)
+    }
+
+    /// Back to the queue, at the card that was open before.
+    func backToDig() {
+        mode = .dig
+        inspected = nil
+        if let card = currentCard { loadIntoPlayer(card) }
+    }
+
+    private func loadIntoPlayer(_ card: QueueCard) {
         player.load(
             videoIDs: card.videoIDs,
             labels: card.tracks.map { track in
@@ -202,6 +233,23 @@ final class AppEnvironment: ObservableObject {
             },
             context: "\(card.artistName) \u{2014} \(card.title)"
         )
+    }
+
+    /// Wantlist records never pass through the queue, so nothing ever fetched their
+    /// covers. This walks them in the background, bounded by the rate limiter.
+    func hydrateLibrary(limit: Int = 8) async {
+        guard let service else { return }
+        let pending = library(kind: nil)
+            .filter { !$0.release.detailFetched }
+            .prefix(limit)
+            .map(\.release.id)
+
+        for releaseID in pending {
+            _ = try? await service.hydrateRelease(releaseID: releaseID)
+        }
+        if !pending.isEmpty {
+            status = "\(pending.count) Platten nachgeladen"
+        }
     }
 
     /// Uses the wantlist as the seed for the next round of digging.
