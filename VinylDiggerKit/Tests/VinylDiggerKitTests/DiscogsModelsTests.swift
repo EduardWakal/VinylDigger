@@ -24,6 +24,60 @@ final class DiscogsModelsTests: XCTestCase {
         XCTAssertFalse(release.labels.isEmpty)
     }
 
+    func testDecodesCommunityRating() throws {
+        let data = try loadFixture("release_2831")
+        let release = try DiscogsJSON.decoder.decode(DiscogsRelease.self, from: data)
+
+        XCTAssertEqual(release.community.rating.average, 4.22, accuracy: 0.001)
+        XCTAssertEqual(release.community.rating.count, 79)
+    }
+
+    func testMissingRatingDecodesToZero() throws {
+        let json = Data(#"{"id": 1, "title": "X", "labels": [], "artists": [], "community": {"want": 5, "have": 2}}"#.utf8)
+        let release = try DiscogsJSON.decoder.decode(DiscogsRelease.self, from: json)
+
+        XCTAssertEqual(release.community.rating.average, 0)
+        XCTAssertEqual(release.community.rating.count, 0)
+    }
+
+    func testDecodesImagesAndCoverURL() throws {
+        let json = Data(#"""
+        {"id": 1, "title": "X", "labels": [], "artists": [],
+         "images": [
+           {"type": "secondary", "uri": "https://i.discogs.com/back.jpeg", "uri150": "https://i.discogs.com/back150.jpeg"},
+           {"type": "primary", "uri": "https://i.discogs.com/front.jpeg", "uri150": "https://i.discogs.com/front150.jpeg"}
+         ]}
+        """#.utf8)
+        let release = try DiscogsJSON.decoder.decode(DiscogsRelease.self, from: json)
+
+        XCTAssertEqual(release.images.count, 2)
+        XCTAssertEqual(release.coverURL, "https://i.discogs.com/front.jpeg")
+    }
+
+    func testCoverURLFallsBackToFirstImage() throws {
+        let json = Data(#"""
+        {"id": 1, "title": "X", "labels": [], "artists": [],
+         "images": [{"uri": "https://i.discogs.com/only.jpeg"}]}
+        """#.utf8)
+        let release = try DiscogsJSON.decoder.decode(DiscogsRelease.self, from: json)
+
+        XCTAssertEqual(release.coverURL, "https://i.discogs.com/only.jpeg")
+    }
+
+    func testCoverURLIsNilWithoutImages() throws {
+        let json = Data(#"{"id": 1, "title": "X", "labels": [], "artists": []}"#.utf8)
+        let release = try DiscogsJSON.decoder.decode(DiscogsRelease.self, from: json)
+
+        XCTAssertNil(release.coverURL)
+    }
+
+    func testDecodesVideoDuration() throws {
+        let data = try loadFixture("release_2831")
+        let release = try DiscogsJSON.decoder.decode(DiscogsRelease.self, from: data)
+
+        XCTAssertNotNil(release.videos.first?.duration)
+    }
+
     func testExtractsYouTubeIDFromWatchURL() {
         let video = DiscogsVideo(uri: "https://www.youtube.com/watch?v=cqRa3O8xQNQ", title: nil)
         XCTAssertEqual(video.youtubeID, "cqRa3O8xQNQ")

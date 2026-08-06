@@ -37,31 +37,68 @@ public struct DiscogsArtist: Codable, Equatable, Sendable {
     }
 }
 
+public struct DiscogsRating: Codable, Equatable, Sendable {
+    /// Community average on Discogs' 0–5 scale; 0 when nobody has rated yet.
+    public let average: Double
+    public let count: Int
+
+    public init(average: Double = 0, count: Int = 0) {
+        self.average = average
+        self.count = count
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        average = try c.decodeIfPresent(Double.self, forKey: .average) ?? 0
+        count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
+    }
+
+    private enum CodingKeys: String, CodingKey { case average, count }
+}
+
 public struct DiscogsCommunity: Codable, Equatable, Sendable {
     public let want: Int
     public let have: Int
+    public let rating: DiscogsRating
 
-    public init(want: Int = 0, have: Int = 0) {
+    public init(want: Int = 0, have: Int = 0, rating: DiscogsRating = DiscogsRating()) {
         self.want = want
         self.have = have
+        self.rating = rating
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         want = try c.decodeIfPresent(Int.self, forKey: .want) ?? 0
         have = try c.decodeIfPresent(Int.self, forKey: .have) ?? 0
+        rating = try c.decodeIfPresent(DiscogsRating.self, forKey: .rating) ?? DiscogsRating()
     }
 
-    private enum CodingKeys: String, CodingKey { case want, have }
+    private enum CodingKeys: String, CodingKey { case want, have, rating }
+}
+
+public struct DiscogsImage: Codable, Equatable, Sendable {
+    public let type: String?
+    public let uri: String
+    public let uri150: String?
+
+    public init(type: String? = nil, uri: String, uri150: String? = nil) {
+        self.type = type
+        self.uri = uri
+        self.uri150 = uri150
+    }
 }
 
 public struct DiscogsVideo: Codable, Equatable, Sendable {
     public let uri: String
     public let title: String?
+    /// Length in seconds as Discogs reports it; the tracklist rarely carries one.
+    public let duration: Int?
 
-    public init(uri: String, title: String?) {
+    public init(uri: String, title: String?, duration: Int? = nil) {
         self.uri = uri
         self.title = title
+        self.duration = duration
     }
 
     /// Discogs stores full YouTube URLs. The IFrame player needs the bare video ID.
@@ -98,9 +135,16 @@ public struct DiscogsRelease: Codable, Equatable, Sendable {
     public let tracklist: [DiscogsTrack]
     public let labels: [DiscogsLabelRef]
     public let artists: [DiscogsNameRef]
+    public let images: [DiscogsImage]
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, year, styles, genres, community, videos, tracklist, labels, artists
+        case id, title, year, styles, genres, community, videos, tracklist, labels, artists, images
+    }
+
+    /// Discogs puts the sleeve front under `type == "primary"`, but not every
+    /// release marks one — then the first image is the best guess available.
+    public var coverURL: String? {
+        (images.first { $0.type == "primary" } ?? images.first)?.uri
     }
 
     public init(from decoder: Decoder) throws {
@@ -115,6 +159,7 @@ public struct DiscogsRelease: Codable, Equatable, Sendable {
         tracklist = try c.decodeIfPresent([DiscogsTrack].self, forKey: .tracklist) ?? []
         labels = try c.decodeIfPresent([DiscogsLabelRef].self, forKey: .labels) ?? []
         artists = try c.decodeIfPresent([DiscogsNameRef].self, forKey: .artists) ?? []
+        images = try c.decodeIfPresent([DiscogsImage].self, forKey: .images) ?? []
     }
 }
 
