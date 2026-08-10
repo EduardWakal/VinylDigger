@@ -50,7 +50,10 @@ public struct DiscoveryCursor: Equatable, Sendable {
 /// same style in a row.
 public enum DiscoveryRotation {
     public static func windows(now: Date) -> [DiscoveryWindow] {
-        let year = Calendar(identifier: .gregorian).component(.year, from: now)
+        var calendar = Calendar(identifier: .gregorian)
+        // Pin the time zone so window bounds do not depend on the machine's local zone.
+        calendar.timeZone = TimeZone(identifier: "Europe/Berlin") ?? .gmt
+        let year = calendar.component(.year, from: now)
         return [
             DiscoveryWindow(label: "All-Time", from: nil, to: nil),
             DiscoveryWindow(label: "90er", from: 1990, to: 1999),
