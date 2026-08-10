@@ -261,8 +261,11 @@ public struct DiscogsSearchHit: Decodable, Equatable, Sendable {
         catno = try c.decodeIfPresent(String.self, forKey: .catno)
         styles = try c.decodeIfPresent([String].self, forKey: .style) ?? []
         // Search reports the year as a string; other endpoints send a number.
-        year = (try? c.decodeIfPresent(String.self, forKey: .year))?.flatMap(Int.init)
-            ?? (try? c.decodeIfPresent(Int.self, forKey: .year))
+        if let text = try? c.decodeIfPresent(String.self, forKey: .year) {
+            year = Int(text)
+        } else {
+            year = try c.decodeIfPresent(Int.self, forKey: .year)
+        }
         let community = try c.decodeIfPresent(DiscogsCommunity.self, forKey: .community)
             ?? DiscogsCommunity()
         have = community.have
