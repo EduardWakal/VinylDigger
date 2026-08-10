@@ -69,11 +69,11 @@ public enum DiscoveryRanker {
     public static func rank(
         _ candidates: [DiscoveryCandidate], limit: Int, now: Date
     ) -> [RankedDiscovery] {
-        let deduped = deduplicate(candidates)
-        let playable = deduped.filter { novelty($0, now: now) > 0 && !isForeign($0) }
-        guard !playable.isEmpty else { return [] }
+        let playable = candidates.filter { novelty($0, now: now) > 0 && !isForeign($0) }
+        let deduped = deduplicate(playable)
+        guard !deduped.isEmpty else { return [] }
 
-        let maxWant = max(playable.map(\.want).max() ?? 0, 1)
+        let maxWant = max(deduped.map(\.want).max() ?? 0, 1)
         let denominator = log1p(Double(maxWant))
 
         // QueuePlanner counts repeats by integer id, but a search hit carries only
@@ -88,7 +88,7 @@ public enum DiscoveryRanker {
             return next
         }
 
-        let scored = playable.map { candidate -> ScoredRelease in
+        let scored = deduped.map { candidate -> ScoredRelease in
             let demand = denominator > 0 ? log1p(Double(candidate.want)) / denominator : 0
             let familiarity = candidate.isKnownArtist ? knownArtistFactor : 1.0
             return ScoredRelease(

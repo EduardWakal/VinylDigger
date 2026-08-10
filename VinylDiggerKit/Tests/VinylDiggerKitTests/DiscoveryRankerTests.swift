@@ -130,4 +130,33 @@ final class DiscoveryRankerTests: XCTestCase {
         let many = (1...20).map { candidate(id: $0, artist: "A\($0)") }
         XCTAssertEqual(DiscoveryRanker.rank(many, limit: 5, now: now).count, 5)
     }
+
+    func testForeignPressingDoesNotShadowACleanOneUnderTheSameMaster() {
+        let ranked = DiscoveryRanker.rank(
+            [
+                candidate(id: 1, artist: "A", want: 900, styles: ["Pop"], master: 77),
+                candidate(id: 2, artist: "A", want: 100, styles: ["Tech House"], master: 77)
+            ],
+            limit: 10, now: now
+        )
+
+        XCTAssertEqual(ranked.map(\.releaseID), [2])
+    }
+
+    func testLabelRepeatPenaltyPushesSameLabelBehindDifferent() {
+        // Three by same label with high want, one by different label with lower want.
+        // The different-label record must not end last despite lower want.
+        let ranked = DiscoveryRanker.rank(
+            [
+                candidate(id: 1, artist: "A1", label: "LabelX", want: 900),
+                candidate(id: 2, artist: "A2", label: "LabelX", want: 890),
+                candidate(id: 3, artist: "A3", label: "LabelX", want: 880),
+                candidate(id: 4, artist: "A4", label: "LabelY", want: 500)
+            ],
+            limit: 4, now: now
+        )
+
+        XCTAssertEqual(ranked[0].releaseID, 1)
+        XCTAssertEqual(ranked[1].releaseID, 4)
+    }
 }
