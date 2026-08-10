@@ -17,7 +17,7 @@ final class AppDatabaseTests: XCTestCase {
                 """)
         }
         XCTAssertEqual(tables, [
-            "artist", "decision", "edge", "label", "outbox", "queue_item",
+            "artist", "decision", "discovery_cursor", "discovery_item", "edge", "label", "outbox", "queue_item",
             "release", "track_like", "video"
         ])
     }
@@ -218,6 +218,46 @@ final class AppDatabaseTests: XCTestCase {
 
         _ = try AppDatabase(path: path)
         XCTAssertNoThrow(try AppDatabase(path: path))
+    }
+
+    func testStoresAndReadsDiscoveryItem() throws {
+        let database = try AppDatabase.inMemory()
+        let stamp = Date(timeIntervalSince1970: 1_770_000_000)
+
+        try database.write { db in
+            var item = DiscoveryItemRecord(
+                releaseID: 2831, masterID: 41133, title: "Fresh Connections",
+                artistName: "Inland Knights", styles: ["Deep House"],
+                have: 517, want: 582, year: 1999, labelName: "20:20 Vision",
+                catno: "VIS035", axisKey: "Deep House|All-Time|1",
+                score: 0.8, rank: 0, fetchedAt: stamp
+            )
+            try item.insert(db)
+        }
+
+        let stored = try database.read { try DiscoveryItemRecord.fetchOne($0, key: 2831) }
+        XCTAssertEqual(stored?.artistName, "Inland Knights")
+        XCTAssertEqual(stored?.styles, ["Deep House"])
+        XCTAssertEqual(stored?.have, 517)
+    }
+
+    func testDiscoveryCursorRoundTrips() throws {
+        let database = try AppDatabase.inMemory()
+
+        try database.write { db in
+            var cursor = DiscoveryCursorRecord(
+                id: DiscoveryCursorRecord.singletonID,
+                styleIndex: 2, windowIndex: 3, page: 4
+            )
+            try cursor.save(db)
+        }
+
+        let stored = try database.read {
+            try DiscoveryCursorRecord.fetchOne($0, key: DiscoveryCursorRecord.singletonID)
+        }
+        XCTAssertEqual(stored?.styleIndex, 2)
+        XCTAssertEqual(stored?.windowIndex, 3)
+        XCTAssertEqual(stored?.page, 4)
     }
 }
 

@@ -188,6 +188,32 @@ public final class AppDatabase {
             try db.execute(sql: "UPDATE release SET detailFetched = 0")
         }
 
+        migrator.registerMigration("v11") { db in
+            try db.create(table: "discovery_item") { t in
+                t.primaryKey("releaseID", .integer)
+                t.column("masterID", .integer)
+                t.column("title", .text).notNull()
+                t.column("artistName", .text).notNull()
+                t.column("styles", .blob).notNull()
+                t.column("have", .integer).notNull().defaults(to: 0)
+                t.column("want", .integer).notNull().defaults(to: 0)
+                t.column("year", .integer)
+                t.column("labelName", .text)
+                t.column("catno", .text)
+                t.column("axisKey", .text).notNull()
+                t.column("score", .double).notNull().defaults(to: 0)
+                t.column("rank", .integer).notNull().defaults(to: 0)
+                t.column("fetchedAt", .datetime).notNull()
+            }
+
+            try db.create(table: "discovery_cursor") { t in
+                t.primaryKey("id", .integer)
+                t.column("styleIndex", .integer).notNull().defaults(to: 0)
+                t.column("windowIndex", .integer).notNull().defaults(to: 0)
+                t.column("page", .integer).notNull().defaults(to: 1)
+            }
+        }
+
         return migrator
     }
 }

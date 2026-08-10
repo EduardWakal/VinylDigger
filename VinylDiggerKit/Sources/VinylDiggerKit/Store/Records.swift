@@ -257,3 +257,65 @@ public struct OutboxRecord: Codable, FetchableRecord, MutablePersistableRecord, 
         id = inserted.rowID
     }
 }
+
+/// One record from the style charts, waiting to be auditioned. The table is
+/// cleared and refilled on every refresh, like `queue_item`.
+public struct DiscoveryItemRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "discovery_item"
+
+    public var releaseID: Int
+    /// Nil when Discogs files the release under no master.
+    public var masterID: Int?
+    public var title: String
+    public var artistName: String
+    public var styles: [String]
+    public var have: Int
+    public var want: Int
+    public var year: Int?
+    public var labelName: String?
+    public var catno: String?
+    /// Which style, window and page turned this up — shown on the card.
+    public var axisKey: String
+    public var score: Double
+    public var rank: Int
+    public var fetchedAt: Date
+
+    public init(
+        releaseID: Int, masterID: Int?, title: String, artistName: String,
+        styles: [String], have: Int, want: Int, year: Int?, labelName: String?,
+        catno: String?, axisKey: String, score: Double, rank: Int, fetchedAt: Date
+    ) {
+        self.releaseID = releaseID
+        self.masterID = masterID
+        self.title = title
+        self.artistName = artistName
+        self.styles = styles
+        self.have = have
+        self.want = want
+        self.year = year
+        self.labelName = labelName
+        self.catno = catno
+        self.axisKey = axisKey
+        self.score = score
+        self.rank = rank
+        self.fetchedAt = fetchedAt
+    }
+}
+
+/// Where the rotation stopped last time. Exactly one row.
+public struct DiscoveryCursorRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "discovery_cursor"
+    public static let singletonID = 1
+
+    public var id: Int
+    public var styleIndex: Int
+    public var windowIndex: Int
+    public var page: Int
+
+    public init(id: Int = DiscoveryCursorRecord.singletonID, styleIndex: Int, windowIndex: Int, page: Int) {
+        self.id = id
+        self.styleIndex = styleIndex
+        self.windowIndex = windowIndex
+        self.page = page
+    }
+}
