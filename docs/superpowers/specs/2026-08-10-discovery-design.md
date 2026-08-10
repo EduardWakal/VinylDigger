@@ -23,7 +23,7 @@ Selbst wenn eine fremde Platte in der Datenbank landete, käme sie nie in die Qu
 
 ## Ziel
 
-Ein zweiter Weg, auf dem Platten in die App kommen: die meistgesammelten Vinyls je Style,
+Ein zweiter Weg, auf dem Platten in die App kommen: die meistgesuchten Vinyls je Style,
 direkt aus der Discogs-Suche, unabhängig vom eigenen Geschmacksgraphen. Sie erscheinen in
 einem eigenen Tab. Was dort gefällt, fließt über den bestehenden Entscheidungs-Pfad in den
 Graphen zurück und verbreitert damit auch die normale Queue.
@@ -38,17 +38,16 @@ Graphen zurück und verbreitert damit auch die normale Queue.
 
 ## Was die Discogs-API hergibt
 
-Geprüft gegen die öffentliche Dokumentation, nicht gegen den Live-Dienst:
+Gegen den Live-Dienst geprüft (Spike, Commit `afb8c32`):
 
 - **Kein** Endpoint für ähnliche Künstler oder Empfehlungen.
-- **Kein** Chart-Endpoint. Ersatz: `/database/search` mit `sort=have&sort_order=desc` — die
-  meistgesammelten Platten eines Styles sind faktisch dessen All-Time-Kanon.
+- **Kein** Chart-Endpoint. Ersatz: `/database/search` mit `sort=want&sort_order=desc` — die
+  meistgesuchten Platten eines Styles.
 - Suchfilter: `genre`, `style`, `year`, `format`, `country`, `label`.
 - Treffer tragen `community.have` und `community.want` sowie `master_id`.
 - `community.rating.average` gibt es nur pro Release über `/releases/{id}`, nicht als
   Sortierschlüssel der Suche. Deshalb ist Rating hier kein Ranking-Kriterium.
 
-**Diese Annahmen sind vor der Implementierung zu verifizieren** — siehe Risiken.
 
 ## Entscheidungen
 
@@ -57,7 +56,8 @@ Geprüft gegen die öffentliche Dokumentation, nicht gegen den Live-Dienst:
 | Datenquelle | Nur Discogs. Keine externen Dienste. |
 | Styles | Feste, in den Einstellungen editierbare Liste. Vorbelegt: Tech House, House, Deep House, Minimal, Progressive House. |
 | Einstieg | Eigener Tab, nicht in die bestehende Queue gemischt. |
-| Sortierung | `have` absteigend, rotierend über Styles und Zeitfenster. |
+| Sortierung | `want` absteigend, rotierend über Styles und Zeitfenster. |
+| Reinheit | Treffer mit genre-fremdem Style (Pop, Hip Hop, Chanson …) fliegen clientseitig raus. |
 | Zeitfenster | all-time, 1990–1999, 2000–2009, 2010–2019, letzte drei Jahre. |
 | Filter | Besessenes und bereits Entschiedenes fliegt raus. Bekannte Künstler bleiben, mit Abschlag. |
 | Suchtyp | `type=release`, lokal dedupliziert über `master_id`. |
@@ -68,6 +68,19 @@ Zwei davon brauchen eine Begründung.
 wäre je Treffer ein Aufruf von `/masters/{id}` nötig — 50 Aufrufe pro Batch bei einem Limit von
 60 pro Minute. Ein Release-Treffer ist dagegen sofort verwendbar, und die Repress-Dubletten
 lassen sich lokal über die mitgelieferte `master_id` erschlagen.
+
+**`want` statt `have`, gemessen statt vermutet.** Der Entwurf setzte zuerst auf `have` — wer eine
+Platte besitzt, hat über sie abgestimmt. Der Spike zeigte, dass das die falsche Abstimmung ist:
+die meistgesammelten Tech-House-Treffer sind Charli XCX, Lady Gaga, Daft Punks TRON-Soundtrack
+und Stromae. Pop-Platten mit Style-Tag schlagen jede Club-Platte, weil sie sich hunderttausendfach
+verkauft haben. `want` misst dagegen Sammlernachfrage, und die Spitze derselben Suche lautet dann
+Villalobos, Pachanga Boys, Oxia, Housey Doingz, Soul Capsule, Moodymann. Das ist die Liste, um die
+es geht.
+
+**Der Reinheitsfilter.** `want` allein lässt Reste durch — Stromae trägt `Hip Hop, Tech House,
+Chanson`, Charli XCX trägt `Dance-pop, Hyperpop`. Da jeder Treffer sein `style`-Array mitbringt,
+kostet das Aussortieren keinen Aufruf: wer einen genre-fremden Style führt, fliegt raus. Die Liste
+dieser Styles ist eine Konstante und bewusst kurz — sie soll Pop aussieben, nicht Grenzgänger.
 
 **Bekannte Künstler bleiben drin.** Sie ganz auszuschließen wäre die direktere Antwort auf das
 Problem, würde aber den Klassiker verstecken, den man von einem bekannten Künstler noch nicht
@@ -94,7 +107,7 @@ Eine neue Methode am bestehenden Client:
 
 ```
 /database/search?type=release&format=Vinyl&genre=Electronic
-  &style=<Style>&year=<Fenster>&sort=have&sort_order=desc&per_page=50&page=<N>
+  &style=<Style>&year=<Fenster>&sort=want&sort_order=desc&per_page=50&page=<N>
 ```
 
 Beim Fenster `all-time` entfällt `year`. Rückgabe ist eine Liste von `DiscogsSearchHit`
@@ -112,9 +125,9 @@ ohne Sonderbehandlung.
 Bewertet einen Batch, unabhängig von `Scorer`:
 
 ```
-score = log1p(have) / log1p(maxHave)   // Kanon-Rang innerhalb des Batches
+score = log1p(want) / log1p(maxWant)   // Nachfrage-Rang innerhalb des Batches
       × knownArtistFactor              // 1.0 unbekannt, 0.5 bereits im Graphen
-      × novelty                        // 0 wenn besessen oder entschieden
+      × novelty                        // 0 wenn besessen, entschieden oder genre-fremd
 ```
 
 „Bereits im Graphen" heißt: der aus dem Treffer gelöste Künstlername steht in der
@@ -124,7 +137,7 @@ Discogs-Zähler-Suffix wie `(2)`. Das trifft nicht jeden Fall; ein verfehlter Ab
 nur den Abschlag, nicht die Korrektheit.
 
 `novelty` folgt derselben Regel wie in `Scorer`: eine zurückgestellte Platte kommt zurück,
-sobald ihr `revisitAt` verstrichen ist. `maxHave` normalisiert gegen den Batch, nicht gegen
+sobald ihr `revisitAt` verstrichen ist. `maxWant` normalisiert gegen den Batch, nicht gegen
 ein globales Maximum — sonst spreizt ein Nischen-Style nicht über den Bereich.
 
 Kein Preview-Faktor. Im Batch ist noch nichts hydriert, ein Faktor wäre für alle gleich.
@@ -174,7 +187,7 @@ nicht hatte. Die bestehende Queue bleibt geschmacksgetrieben, bekommt aber neues
 Ein neuer Tab in `RootView`. Kartenlayout und `PlayerController` von `QueueView`
 wiederverwendet, damit Abspielen, Herzen und Entscheiden sich identisch anfühlen.
 
-Statt „über Label X" trägt die Karte ihre Herkunft: `Deep House · All-Time · 1.204 haben's`.
+Statt „über Label X" trägt die Karte ihre Herkunft: `Deep House · All-Time · 1.204 wollen's`.
 
 In `SettingsView` eine editierbare Style-Liste mit Hinzufügen und Entfernen, vorbelegt mit den
 fünf genannten Styles. Eine leere Liste blockiert den Refresh mit einem Hinweis statt still
@@ -206,12 +219,14 @@ beim Anzeigen, nicht für den ganzen Batch auf einmal.
 
 ## Risiken
 
-**Die Sortierung ist ungeprüft.** Dass `/database/search` `sort=have` unterstützt und
-`community.have` in den Treffern liefert, stammt aus der Dokumentation, nicht aus einem echten
-Aufruf. **Erster Schritt der Umsetzung ist ein Spike gegen den Live-Dienst mit echtem Token.**
-Trägt die Annahme nicht, sind die Rückfallebenen: `sort=want` als Sortierschlüssel, oder ein
-größerer Batch, der lokal nach `have` sortiert wird. Beide ändern das Ranking, nicht die
-Architektur.
+**Die Sortierung ist geprüft.** Der Spike (Commit `afb8c32`) hat gegen den Live-Dienst bestätigt:
+`/database/search` versteht `sort`, liefert `community.have` und `community.want` in jedem Treffer,
+sortiert korrekt absteigend, und gibt `master_id` sowie `style` mit. Das Jahr kommt als String.
+Derselbe Spike hat die ursprüngliche Wahl `have` widerlegt — siehe die Begründung oben.
+
+**Der Reinheitsfilter ist eine Konstante, keine Regel.** Er kennt nur die Styles, die in der
+Stichprobe aufgefallen sind. Weitere Ausreißer werden auftauchen; dann wächst die Liste. Ein Filter,
+der zu breit greift, wirft Grenzgänger weg, die genau das Interessante sind — im Zweifel drin lassen.
 
 **Der Kanon ist endlich.** Die Rotation über fünf Styles, fünf Fenster und wachsende Seiten
 liefert einige tausend Platten. Für den Anfang genug; bei Erschöpfung wären mehr Styles oder

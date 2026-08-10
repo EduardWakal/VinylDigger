@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ein zweiter Einspeise-Pfad für Platten — die meistgesammelten Vinyls je Style aus der Discogs-Suche, in einem eigenen Tab, unabhängig vom Geschmacksgraphen.
+**Goal:** Ein zweiter Einspeise-Pfad für Platten — die meistgesuchten Vinyls je Style aus der Discogs-Suche, in einem eigenen Tab, unabhängig vom Geschmacksgraphen.
 
-**Architecture:** Eine neue Client-Methode holt Suchtreffer nach Style und Zeitfenster, sortiert nach `have`. Eine rein rechnende Rotation bestimmt, welcher Style-Zeitfenster-Seite als nächstes dran ist. Ein eigener Ranker bewertet den Batch ohne den affinitätsbasierten `Scorer`, ein eigener Service schreibt das Ergebnis in zwei neue Tabellen. Die Oberfläche bekommt einen vierten Tab, der das Kartenlayout des Players wiederverwendet.
+**Architecture:** Eine neue Client-Methode holt Suchtreffer nach Style und Zeitfenster, sortiert nach `want`, gefiltert gegen genre-fremde Styles. Eine rein rechnende Rotation bestimmt, welcher Style-Zeitfenster-Seite als nächstes dran ist. Ein eigener Ranker bewertet den Batch ohne den affinitätsbasierten `Scorer`, ein eigener Service schreibt das Ergebnis in zwei neue Tabellen. Die Oberfläche bekommt einen vierten Tab, der das Kartenlayout des Players wiederverwendet.
 
 **Tech Stack:** Swift 5.9, SwiftUI, GRDB, XCTest, XcodeGen. macOS 14.
 
@@ -169,7 +169,7 @@ An `DiscogsClientTests` anhängen:
         XCTAssertEqual(value("format"), "Vinyl")
         XCTAssertEqual(value("genre"), "Electronic")
         XCTAssertEqual(value("style"), "Tech House")
-        XCTAssertEqual(value("sort"), "have")
+        XCTAssertEqual(value("sort"), "want")
         XCTAssertEqual(value("sort_order"), "desc")
         XCTAssertEqual(value("per_page"), "50")
         XCTAssertEqual(value("page"), "3")
@@ -287,7 +287,12 @@ public struct DiscogsSearchHit: Decodable, Equatable, Sendable {
 In `DiscogsClient.swift` hinter `searchReleases` einfügen:
 
 ```swift
-    /// The most collected vinyl of one style, newest page of the canon first.
+    /// The most sought-after vinyl of one style.
+    ///
+    /// Sorted by `want`, not `have`: the most *collected* records of a style are
+    /// the ones that sold in pop quantities and happen to carry the tag — Charli
+    /// XCX and Lady Gaga head the tech house charts by that measure. Collector
+    /// demand tracks the genre's own canon far better.
     ///
     /// `type=release` rather than `type=master`: a master hit carries no main
     /// release, so each one would cost a second call. A release hit is usable at
@@ -302,7 +307,7 @@ In `DiscogsClient.swift` hinter `searchReleases` einfügen:
             URLQueryItem(name: "format", value: "Vinyl"),
             URLQueryItem(name: "genre", value: "Electronic"),
             URLQueryItem(name: "style", value: style),
-            URLQueryItem(name: "sort", value: "have"),
+            URLQueryItem(name: "sort", value: "want"),
             URLQueryItem(name: "sort_order", value: "desc"),
             URLQueryItem(name: "per_page", value: "50"),
             URLQueryItem(name: "page", value: String(page))
@@ -325,7 +330,7 @@ Expected: PASS, alle Tests der Datei
 
 ```bash
 git add VinylDiggerKit/Sources/VinylDiggerKit/DiscogsAPI VinylDiggerKit/Tests/VinylDiggerKitTests/DiscogsClientTests.swift
-git commit -m "feat: search discogs by style, sorted by how many own it"
+git commit -m "feat: search discogs by style, sorted by collector demand"
 ```
 
 ---
@@ -706,9 +711,10 @@ git commit -m "feat: store discovery batches and the rotation cursor"
 **Interfaces:**
 - Consumes: `ScoredRelease` und `QueuePlanner.plan(_:limit:)` (bestehend)
 - Produces:
-  - `DiscoveryCandidate` mit `releaseID: Int`, `masterID: Int?`, `artistName: String`, `labelName: String?`, `have: Int`, `isKnownArtist: Bool`, `isOwned: Bool`, `isDecided: Bool`, `revisitAt: Date?`
+  - `DiscoveryCandidate` mit `releaseID: Int`, `masterID: Int?`, `artistName: String`, `labelName: String?`, `want: Int`, `styles: [String]`, `isKnownArtist: Bool`, `isOwned: Bool`, `isDecided: Bool`, `revisitAt: Date?`
   - `RankedDiscovery` mit `releaseID: Int`, `score: Double`
   - `DiscoveryRanker.knownArtistFactor: Double`
+  - `DiscoveryRanker.foreignStyles: Set<String>`
   - `DiscoveryRanker.rank(_ candidates: [DiscoveryCandidate], limit: Int, now: Date) -> [RankedDiscovery]`
 
 - [ ] **Step 1: Den fehlschlagenden Test schreiben**
@@ -721,14 +727,14 @@ final class DiscoveryRankerTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_770_000_000)
 
     private func candidate(
-        id: Int, artist: String = "A", label: String? = nil, have: Int = 100,
-        known: Bool = false, owned: Bool = false, decided: Bool = false,
-        master: Int? = nil, revisitAt: Date? = nil
+        id: Int, artist: String = "A", label: String? = nil, want: Int = 100,
+        styles: [String] = ["Tech House"], known: Bool = false, owned: Bool = false,
+        decided: Bool = false, master: Int? = nil, revisitAt: Date? = nil
     ) -> DiscoveryCandidate {
         DiscoveryCandidate(
             releaseID: id, masterID: master, artistName: artist, labelName: label,
-            have: have, isKnownArtist: known, isOwned: owned, isDecided: decided,
-            revisitAt: revisitAt
+            want: want, styles: styles, isKnownArtist: known, isOwned: owned,
+            isDecided: decided, revisitAt: revisitAt
         )
     }
 
@@ -760,11 +766,11 @@ final class DiscoveryRankerTests: XCTestCase {
         XCTAssertEqual(ranked.map(\.releaseID), [1])
     }
 
-    func testKnownArtistRanksBehindUnknownAtEqualHave() {
+    func testKnownArtistRanksBehindUnknownAtEqualWant() {
         let ranked = DiscoveryRanker.rank(
             [
-                candidate(id: 1, artist: "Bekannt", have: 500, known: true),
-                candidate(id: 2, artist: "Neu", have: 500, known: false)
+                candidate(id: 1, artist: "Bekannt", want: 500, known: true),
+                candidate(id: 2, artist: "Neu", want: 500, known: false)
             ],
             limit: 10, now: now
         )
@@ -772,12 +778,12 @@ final class DiscoveryRankerTests: XCTestCase {
         XCTAssertEqual(ranked.map(\.releaseID), [2, 1])
     }
 
-    func testDeduplicatesByMasterKeepingTheMostCollected() {
+    func testDeduplicatesByMasterKeepingTheMostWanted() {
         let ranked = DiscoveryRanker.rank(
             [
-                candidate(id: 1, artist: "A", have: 100, master: 77),
-                candidate(id: 2, artist: "A", have: 900, master: 77),
-                candidate(id: 3, artist: "B", have: 50, master: nil)
+                candidate(id: 1, artist: "A", want: 100, master: 77),
+                candidate(id: 2, artist: "A", want: 900, master: 77),
+                candidate(id: 3, artist: "B", want: 50, master: nil)
             ],
             limit: 10, now: now
         )
@@ -785,14 +791,55 @@ final class DiscoveryRankerTests: XCTestCase {
         XCTAssertEqual(ranked.map(\.releaseID), [2, 3])
     }
 
+    func testDropsForeignStyles() {
+        // What the live search actually returned at the top of "Tech House".
+        let ranked = DiscoveryRanker.rank(
+            [
+                candidate(
+                    id: 1, artist: "Charli XCX", want: 3757,
+                    styles: ["Tech House", "Electro House", "Dance-pop", "Hyperpop"]
+                ),
+                candidate(
+                    id: 2, artist: "Stromae", want: 2812,
+                    styles: ["Hip Hop", "Tech House", "Chanson"]
+                ),
+                candidate(
+                    id: 3, artist: "Villalobos", want: 4888,
+                    styles: ["Minimal Techno", "Tech House", "House"]
+                )
+            ],
+            limit: 10, now: now
+        )
+
+        XCTAssertEqual(ranked.map(\.releaseID), [3])
+    }
+
+    func testKeepsRecordsWithoutStyles() {
+        // An unstyled hit is unknown, not foreign. Throwing it out would silently
+        // shrink the pool.
+        let ranked = DiscoveryRanker.rank(
+            [candidate(id: 1, artist: "A", styles: [])], limit: 10, now: now
+        )
+
+        XCTAssertEqual(ranked.map(\.releaseID), [1])
+    }
+
+    func testForeignStyleMatchIgnoresCase() {
+        let ranked = DiscoveryRanker.rank(
+            [candidate(id: 1, artist: "A", styles: ["dance-POP"])], limit: 10, now: now
+        )
+
+        XCTAssertTrue(ranked.isEmpty)
+    }
+
     func testSpreadsAcrossArtists() {
         // Three by one artist, one by another. The lone outsider must not end last.
         let ranked = DiscoveryRanker.rank(
             [
-                candidate(id: 1, artist: "Vielschreiber", have: 900),
-                candidate(id: 2, artist: "Vielschreiber", have: 890),
-                candidate(id: 3, artist: "Vielschreiber", have: 880),
-                candidate(id: 4, artist: "Anderer", have: 400)
+                candidate(id: 1, artist: "Vielschreiber", want: 900),
+                candidate(id: 2, artist: "Vielschreiber", want: 890),
+                candidate(id: 3, artist: "Vielschreiber", want: 880),
+                candidate(id: 4, artist: "Anderer", want: 400)
             ],
             limit: 4, now: now
         )
@@ -823,7 +870,11 @@ public struct DiscoveryCandidate: Equatable, Sendable {
     public let masterID: Int?
     public let artistName: String
     public let labelName: String?
-    public let have: Int
+    /// How many people are looking for this record. Collector demand, not sales.
+    public let want: Int
+    /// Every style Discogs files the record under, used to weed out pop records
+    /// that merely carry the searched tag.
+    public let styles: [String]
     /// True when this artist already sits in the taste graph.
     public let isKnownArtist: Bool
     public let isOwned: Bool
@@ -832,14 +883,15 @@ public struct DiscoveryCandidate: Equatable, Sendable {
 
     public init(
         releaseID: Int, masterID: Int?, artistName: String, labelName: String?,
-        have: Int, isKnownArtist: Bool, isOwned: Bool, isDecided: Bool,
-        revisitAt: Date?
+        want: Int, styles: [String], isKnownArtist: Bool, isOwned: Bool,
+        isDecided: Bool, revisitAt: Date?
     ) {
         self.releaseID = releaseID
         self.masterID = masterID
         self.artistName = artistName
         self.labelName = labelName
-        self.have = have
+        self.want = want
+        self.styles = styles
         self.isKnownArtist = isKnownArtist
         self.isOwned = isOwned
         self.isDecided = isDecided
@@ -861,21 +913,33 @@ public struct RankedDiscovery: Equatable, Sendable {
 ///
 /// Deliberately not `Scorer`: that one multiplies by graph affinity, and every
 /// record here comes from outside the graph, so all of them would score zero.
-/// What stands in for affinity is how many people own the record.
+/// What stands in for affinity is how many people are hunting the record.
 public enum DiscoveryRanker {
     /// How much a record loses for being by an artist already in the graph.
     /// Lower it to 0 to shut familiar names out entirely.
     public static let knownArtistFactor = 0.5
 
+    /// Styles that mark a hit as something other than club music, however the
+    /// tags read. A pop record with a "Tech House" tag outranks every real one
+    /// on demand alone, so it is dropped rather than ranked down.
+    ///
+    /// Kept deliberately short: it should catch pop, not borderline cases. Every
+    /// entry here was seen at the top of a live search.
+    public static let foreignStyles: Set<String> = [
+        "pop", "dance-pop", "hyperpop", "synth-pop", "europop", "j-pop", "k-pop",
+        "hip hop", "rap", "chanson", "schlager", "country", "ballad", "rock",
+        "pop rock", "indie rock", "reggaeton"
+    ]
+
     public static func rank(
         _ candidates: [DiscoveryCandidate], limit: Int, now: Date
     ) -> [RankedDiscovery] {
         let deduped = deduplicate(candidates)
-        let playable = deduped.filter { novelty($0, now: now) > 0 }
+        let playable = deduped.filter { novelty($0, now: now) > 0 && !isForeign($0) }
         guard !playable.isEmpty else { return [] }
 
-        let maxHave = max(playable.map(\.have).max() ?? 0, 1)
-        let denominator = log1p(Double(maxHave))
+        let maxWant = max(playable.map(\.want).max() ?? 0, 1)
+        let denominator = log1p(Double(maxWant))
 
         // QueuePlanner counts repeats by integer id, but a search hit carries only
         // names. Numbering them within the batch is enough — the counts never
@@ -890,7 +954,7 @@ public enum DiscoveryRanker {
         }
 
         let scored = playable.map { candidate -> ScoredRelease in
-            let demand = denominator > 0 ? log1p(Double(candidate.have)) / denominator : 0
+            let demand = denominator > 0 ? log1p(Double(candidate.want)) / denominator : 0
             let familiarity = candidate.isKnownArtist ? knownArtistFactor : 1.0
             return ScoredRelease(
                 releaseID: candidate.releaseID,
@@ -911,7 +975,7 @@ public enum DiscoveryRanker {
     }
 
     /// One entry per master — a reissue is the same record twice. The most
-    /// collected pressing wins, because that is the one the charts are about.
+    /// sought-after pressing wins, because that is the one being hunted.
     private static func deduplicate(_ candidates: [DiscoveryCandidate]) -> [DiscoveryCandidate] {
         var best: [Int: DiscoveryCandidate] = [:]
         var withoutMaster: [DiscoveryCandidate] = []
@@ -921,11 +985,17 @@ public enum DiscoveryRanker {
                 withoutMaster.append(candidate)
                 continue
             }
-            if let existing = best[masterID], existing.have >= candidate.have { continue }
+            if let existing = best[masterID], existing.want >= candidate.want { continue }
             best[masterID] = candidate
         }
 
         return Array(best.values) + withoutMaster
+    }
+
+    /// A record with no styles at all is unknown, not foreign — dropping it would
+    /// quietly shrink the pool for a missing tag.
+    private static func isForeign(_ candidate: DiscoveryCandidate) -> Bool {
+        candidate.styles.contains { foreignStyles.contains($0.lowercased()) }
     }
 
     /// Same rule as `Scorer.novelty`: a postponed record comes back once its
@@ -942,7 +1012,7 @@ public enum DiscoveryRanker {
 - [ ] **Step 4: Tests laufen lassen**
 
 Run: `cd VinylDiggerKit && swift test --filter DiscoveryRankerTests`
-Expected: PASS, sechs Tests
+Expected: PASS, neun Tests
 
 - [ ] **Step 5: Commit**
 
@@ -991,18 +1061,18 @@ final class DiscoveryServiceTests: XCTestCase {
         Data("{\"results\": [\(hits)]}".utf8)
     }
 
-    private func hit(id: Int, artist: String, have: Int, master: Int = 0) -> String {
+    private func hit(id: Int, artist: String, want: Int, master: Int = 0) -> String {
         """
         {"id": \(id), "master_id": \(master), "title": "\(artist) - Titel \(id)",
          "year": "1999", "label": ["Label"], "catno": "CAT\(id)",
-         "style": ["Deep House"], "community": {"have": \(have), "want": 10}}
+         "style": ["Deep House"], "community": {"have": 10, "want": \(want)}}
         """
     }
 
     func testRefreshStoresBatchAndAdvancesCursor() async throws {
         let database = try AppDatabase.inMemory()
         let transport = StubTransport(replies: [
-            .init(body: results([hit(id: 1, artist: "Neu", have: 500)].joined(separator: ",")))
+            .init(body: results([hit(id: 1, artist: "Neu", want: 500)].joined(separator: ",")))
         ])
         let service = DiscoveryService(
             database: database, client: makeClient(transport),
@@ -1025,7 +1095,7 @@ final class DiscoveryServiceTests: XCTestCase {
     func testRefreshFilesStubReleasesSoTheyCanBeHydrated() async throws {
         let database = try AppDatabase.inMemory()
         let transport = StubTransport(replies: [
-            .init(body: results(hit(id: 42, artist: "Neu", have: 500)))
+            .init(body: results(hit(id: 42, artist: "Neu", want: 500)))
         ])
         let service = DiscoveryService(
             database: database, client: makeClient(transport),
@@ -1049,8 +1119,8 @@ final class DiscoveryServiceTests: XCTestCase {
             try owned.save(db)
         }
         let transport = StubTransport(replies: [
-            .init(body: results(hit(id: 1, artist: "Neu", have: 500))),
-            .init(body: results(hit(id: 2, artist: "Neu", have: 400)))
+            .init(body: results(hit(id: 1, artist: "Neu", want: 500))),
+            .init(body: results(hit(id: 2, artist: "Neu", want: 400)))
         ])
         let service = DiscoveryService(
             database: database, client: makeClient(transport),
@@ -1099,7 +1169,7 @@ final class DiscoveryServiceTests: XCTestCase {
     func testFailedSearchLeavesCursorAndBatchAlone() async throws {
         let database = try AppDatabase.inMemory()
         let good = StubTransport(replies: [
-            .init(body: results(hit(id: 1, artist: "Neu", have: 500)))
+            .init(body: results(hit(id: 1, artist: "Neu", want: 500)))
         ])
         let service = DiscoveryService(
             database: database, client: makeClient(good),
@@ -1129,8 +1199,8 @@ final class DiscoveryServiceTests: XCTestCase {
         }
         let transport = StubTransport(replies: [
             .init(body: results([
-                hit(id: 1, artist: "Bekannt", have: 500),
-                hit(id: 2, artist: "Neu", have: 500)
+                hit(id: 1, artist: "Bekannt", want: 500),
+                hit(id: 2, artist: "Neu", want: 500)
             ].joined(separator: ",")))
         ])
         let service = DiscoveryService(
@@ -1258,7 +1328,7 @@ public actor DiscoveryService {
         }
     }
 
-    /// "Deep House · All-Time · 1.204 haben's"
+    /// "Deep House · All-Time · 1.204 wollen's"
     private static func reason(for item: DiscoveryItemRecord) -> String {
         let parts = item.axisKey.split(separator: "|", omittingEmptySubsequences: false)
         let style = parts.first.map(String.init) ?? ""
@@ -1266,8 +1336,8 @@ public actor DiscoveryService {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = Locale(identifier: "de_DE")
-        let have = formatter.string(from: NSNumber(value: item.have)) ?? "\(item.have)"
-        return "\(style) \u{00B7} \(window) \u{00B7} \(have) haben's"
+        let want = formatter.string(from: NSNumber(value: item.want)) ?? "\(item.want)"
+        return "\(style) \u{00B7} \(window) \u{00B7} \(want) wollen's"
     }
 
     // MARK: - Steps
@@ -1312,7 +1382,8 @@ public actor DiscoveryService {
                     masterID: hit.masterID,
                     artistName: hit.artistName,
                     labelName: hit.label,
-                    have: hit.have,
+                    want: hit.want,
+                    styles: hit.styles,
                     isKnownArtist: knownArtists.contains(Self.normalise(hit.artistName)),
                     isOwned: release?.owned ?? false,
                     isDecided: decision != nil,
@@ -1711,7 +1782,7 @@ struct DiscoveryView: View {
                 ContentUnavailableView(
                     "Noch keine Vorschläge",
                     systemImage: "chart.line.uptrend.xyaxis",
-                    description: Text("Hol die meistgesammelten Platten deiner Styles.")
+                    description: Text("Hol die meistgesuchten Platten deiner Styles.")
                 )
             }
 
@@ -1755,7 +1826,7 @@ Expected: BUILD SUCCEEDED
 
 - [ ] **Step 5: Durchspielen**
 
-App starten, Tab „Entdecken", „Nachladen". Erwartet: Karten erscheinen, die Grund-Zeile liest sich als `Deep House · All-Time · 1.204 haben's`, die Platte spielt. „Auf die Wantlist" schaltet weiter und legt die Platte auf die Discogs-Wantlist. Danach nochmal „Nachladen" — es kommt ein anderer Style oder ein anderes Jahrzehnt, nicht dieselbe Liste.
+App starten, Tab „Entdecken", „Nachladen". Erwartet: Karten erscheinen, die Grund-Zeile liest sich als `Deep House · All-Time · 1.204 wollen's`, die Platte spielt. „Auf die Wantlist" schaltet weiter und legt die Platte auf die Discogs-Wantlist. Danach nochmal „Nachladen" — es kommt ein anderer Style oder ein anderes Jahrzehnt, nicht dieselbe Liste.
 
 Zur Gegenprobe alle Styles in den Einstellungen entfernen und nachladen: es muss der Hinweis auf die Einstellungen kommen, kein Fehler.
 
