@@ -220,6 +220,71 @@ public struct DiscogsReleaseSummary: Codable, Equatable, Sendable {
     }
 }
 
+/// One hit from `/database/search`. Only decodable — the search response is read,
+/// never sent back, and its keys do not line up with the flattened properties.
+public struct DiscogsSearchHit: Decodable, Equatable, Sendable {
+    public let id: Int
+    public let masterID: Int?
+    /// Discogs prints artist and record as one string, "Artist - Title".
+    public let title: String
+    public let year: Int?
+    public let label: String?
+    public let catno: String?
+    public let styles: [String]
+    public let have: Int
+    public let want: Int
+
+    public var artistName: String {
+        guard let range = title.range(of: " - ") else { return "" }
+        return String(title[..<range.lowerBound])
+    }
+
+    public var recordTitle: String {
+        guard let range = title.range(of: " - ") else { return title }
+        return String(title[range.upperBound...])
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, label, catno, year, community
+        case style
+        case masterID = "master_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        // Discogs writes 0 for a release that belongs to no master.
+        let master = try c.decodeIfPresent(Int.self, forKey: .masterID) ?? 0
+        masterID = master == 0 ? nil : master
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        label = try c.decodeIfPresent([String].self, forKey: .label)?.first
+        catno = try c.decodeIfPresent(String.self, forKey: .catno)
+        styles = try c.decodeIfPresent([String].self, forKey: .style) ?? []
+        // Search reports the year as a string; other endpoints send a number.
+        year = (try? c.decodeIfPresent(String.self, forKey: .year))?.flatMap(Int.init)
+            ?? (try? c.decodeIfPresent(Int.self, forKey: .year))
+        let community = try c.decodeIfPresent(DiscogsCommunity.self, forKey: .community)
+            ?? DiscogsCommunity()
+        have = community.have
+        want = community.want
+    }
+
+    public init(
+        id: Int, masterID: Int?, title: String, year: Int?, label: String?,
+        catno: String?, styles: [String], have: Int, want: Int
+    ) {
+        self.id = id
+        self.masterID = masterID
+        self.title = title
+        self.year = year
+        self.label = label
+        self.catno = catno
+        self.styles = styles
+        self.have = have
+        self.want = want
+    }
+}
+
 public struct DiscogsPagination: Codable, Equatable, Sendable {
     public let page: Int
     public let pages: Int

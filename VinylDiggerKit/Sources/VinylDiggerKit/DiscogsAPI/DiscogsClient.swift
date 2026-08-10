@@ -96,6 +96,39 @@ public actor DiscogsClient {
         }
     }
 
+    /// The most sought-after vinyl of one style.
+    ///
+    /// Sorted by `want`, not `have`: the most *collected* records of a style are
+    /// the ones that sold in pop quantities and happen to carry the tag — Charli
+    /// XCX and Lady Gaga head the tech house charts by that measure. Collector
+    /// demand tracks the genre's own canon far better.
+    ///
+    /// `type=release` rather than `type=master`: a master hit carries no main
+    /// release, so each one would cost a second call. A release hit is usable at
+    /// once, and the repressings it drags in are deduplicated over `master_id`.
+    public func searchByStyle(
+        style: String, yearFrom: Int?, yearTo: Int?, page: Int
+    ) async throws -> [DiscogsSearchHit] {
+        struct Envelope: Decodable { let results: [DiscogsSearchHit] }
+
+        var query = [
+            URLQueryItem(name: "type", value: "release"),
+            URLQueryItem(name: "format", value: "Vinyl"),
+            URLQueryItem(name: "genre", value: "Electronic"),
+            URLQueryItem(name: "style", value: style),
+            URLQueryItem(name: "sort", value: "want"),
+            URLQueryItem(name: "sort_order", value: "desc"),
+            URLQueryItem(name: "per_page", value: "50"),
+            URLQueryItem(name: "page", value: String(page))
+        ]
+        if let yearFrom, let yearTo {
+            query.append(URLQueryItem(name: "year", value: "\(yearFrom)-\(yearTo)"))
+        }
+
+        let envelope: Envelope = try await fetch(path: "/database/search", query: query)
+        return envelope.results
+    }
+
     public func collectionReleaseIDs(username: String) async throws -> [Int] {
         try await allReleaseIDs(path: "/users/\(username)/collection/folders/0/releases")
     }
