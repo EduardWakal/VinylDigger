@@ -324,3 +324,18 @@ public struct DiscoveryCursorRecord: Codable, FetchableRecord, MutablePersistabl
         self.page = page
     }
 }
+
+/// When the last dig session was written to the vault. A session is everything
+/// marked since — there is no session object, the export itself is the cut.
+public struct ExportCursorRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "export_cursor"
+    public static let singletonID = 1
+
+    public var id: Int
+    public var lastExportedAt: Date
+
+    public init(id: Int = ExportCursorRecord.singletonID, lastExportedAt: Date) {
+        self.id = id
+        self.lastExportedAt = lastExportedAt
+    }
+}

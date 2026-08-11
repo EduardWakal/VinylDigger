@@ -17,7 +17,7 @@ final class AppDatabaseTests: XCTestCase {
                 """)
         }
         XCTAssertEqual(tables, [
-            "artist", "decision", "discovery_cursor", "discovery_item", "edge", "label", "outbox", "queue_item",
+            "artist", "decision", "discovery_cursor", "discovery_item", "edge", "export_cursor", "label", "outbox", "queue_item",
             "release", "track_like", "video"
         ])
     }

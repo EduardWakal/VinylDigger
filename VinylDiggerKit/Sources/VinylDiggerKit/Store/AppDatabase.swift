@@ -224,6 +224,13 @@ public final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v13") { db in
+            try db.create(table: "export_cursor") { t in
+                t.primaryKey("id", .integer)
+                t.column("lastExportedAt", .datetime).notNull()
+            }
+        }
+
         return migrator
     }
 }
