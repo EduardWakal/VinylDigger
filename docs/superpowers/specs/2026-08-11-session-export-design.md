@@ -1,7 +1,7 @@
 # VinylDigger — Dig-Session-Export und fester Transport
 
 **Datum:** 2026-08-11
-**Status:** Entwurf, wartet auf Freigabe
+**Status:** umgesetzt
 **Baut auf:** [Library Design](2026-08-06-library-design.md), [Player Design](2026-08-06-player-design.md), [Discovery Design](2026-08-10-discovery-design.md)
 
 ## Problem
@@ -120,7 +120,12 @@ darunter der YouTube-Link. Nur der Kopf ändert sich: statt „Stand: …" steht
 
 ### Ablauf und Fehlerfall
 
-`AppEnvironment.exportToObsidian` für den Session-Fall:
+`AppEnvironment.exportToObsidian(_:)` wurde beim Umsetzen in zwei Methoden geteilt,
+`exportDigSession()` und `exportRecords()`. Der Grund: `.digSession` trägt ein Datum, und das
+ist genau der Zeitstempel, mit dem der Ablauf ohnehin arbeitet — die Ansicht soll ihn nicht
+erfinden müssen, nur um ihn als Argument durchzureichen.
+
+`exportDigSession()`:
 
 1. `now = Date()`
 2. `likes = try service.digSession(until: now)`
@@ -156,6 +161,10 @@ VStack {
 }
 .background(PlayerHost(controller: environment.player)…)
 ```
+
+Mit der Leiste wandert `formatSeconds` in dieselbe neue Datei, und zwar **ohne** `private`:
+`TrackList` bleibt in `QueueView.swift` und braucht die Funktion weiterhin, `private` gilt auf
+oberster Ebene aber nur dateiweit. Es bleibt bei einer einzigen Definition im Modul.
 
 `QueueView` verliert Transport und den zugehörigen Divider und behält Kopfzeile, Card und
 Entscheidungsknöpfe. Der erste Tab heißt künftig **Digliste** statt Player — er ist jetzt
