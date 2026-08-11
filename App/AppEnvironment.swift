@@ -198,10 +198,17 @@ final class AppEnvironment: ObservableObject {
         }
     }
 
-    /// Marks whatever is playing, which is not always a track of the card on screen.
+    /// Marks whatever is playing, which is not always a track of the card on screen
+    /// — and not always a card of the queue either, now that the transport sits
+    /// under every tab.
     func likeCurrentlyPlaying() {
         guard let id = player.currentVideoID else { return }
-        guard let card = cards.first(where: { $0.videoIDs.contains(id) }) else { return }
+        let pools = [cards, discoveryCards, inspected.map { [$0] } ?? []]
+        guard
+            let card = pools.lazy.compactMap({ pool in
+                pool.first { $0.videoIDs.contains(id) }
+            }).first
+        else { return }
         toggleLike(releaseID: card.releaseID, youtubeID: id)
     }
 

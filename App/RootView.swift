@@ -12,24 +12,34 @@ struct RootView: View {
     @State private var tab = 0
 
     var body: some View {
-        TabView(selection: $tab) {
-            QueueView()
-                .tabItem { Label("Player", systemImage: "play.circle") }
-                .tag(0)
+        VStack(spacing: 0) {
+            TabView(selection: $tab) {
+                QueueView()
+                    .tabItem { Label("Digliste", systemImage: "play.circle") }
+                    .tag(0)
 
-            DiscoveryView()
-                .tabItem { Label("Entdecken", systemImage: "chart.line.uptrend.xyaxis") }
-                .tag(3)
+                DiscoveryView()
+                    .tabItem { Label("Entdecken", systemImage: "chart.line.uptrend.xyaxis") }
+                    .tag(3)
 
-            LibraryView()
-                .tabItem { Label("Sammlung", systemImage: "square.stack") }
-                .tag(1)
+                LibraryView()
+                    .tabItem { Label("Sammlung", systemImage: "square.stack") }
+                    .tag(1)
 
-            StatsView()
-                .tabItem { Label("Statistik", systemImage: "chart.bar") }
-                .tag(2)
+                StatsView()
+                    .tabItem { Label("Statistik", systemImage: "chart.bar") }
+                    .tag(2)
+            }
+
+            Divider()
+
+            TransportView(player: environment.player) {
+                environment.likeCurrentlyPlaying()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
         }
-        // Mounted once on the TabView, not inside a single tab: macOS unmounts an
+        // Mounted once on the window, not inside a single tab: macOS unmounts an
         // unselected tab's views entirely, and a WKWebView outside the hierarchy
         // does not reliably keep playing.
         .background(PlayerHost(controller: environment.player).frame(width: 1, height: 1))
