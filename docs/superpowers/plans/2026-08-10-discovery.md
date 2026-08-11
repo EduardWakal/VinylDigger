@@ -1333,10 +1333,13 @@ public actor DiscoveryService {
     }
 
     /// "Deep House · All-Time · 1.204 wollen's"
+    ///
+    /// Parsed from the right: the trailing two components are fixed, but the style
+    /// is user-entered and may itself contain the separator.
     private static func reason(for item: DiscoveryItemRecord) -> String {
         let parts = item.axisKey.split(separator: "|", omittingEmptySubsequences: false)
-        let style = parts.first.map(String.init) ?? ""
-        let window = parts.count > 1 ? String(parts[1]) : ""
+        let style = parts.count >= 3 ? parts[0..<(parts.count - 2)].joined(separator: "|") : ""
+        let window = parts.count >= 2 ? String(parts[parts.count - 2]) : ""
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = Locale(identifier: "de_DE")
@@ -1573,6 +1576,9 @@ enum DiscoveryStyles {
 
     static func save(_ styles: [String]) {
         let cleaned = styles
+            // The axis key joins style, window and page with a pipe, so a style
+            // carrying one would garble the line shown on the card.
+            .map { $0.replacingOccurrences(of: "|", with: " ") }
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         UserDefaults.standard.set(cleaned, forKey: key)
