@@ -1,7 +1,7 @@
 import XCTest
 @testable import VinylDiggerKit
 
-final class ObsidianSearchListTests: XCTestCase {
+final class ObsidianDigSessionTests: XCTestCase {
     private let generatedAt = Date(timeIntervalSince1970: 1_770_000_000)
 
     private func like(
@@ -16,7 +16,7 @@ final class ObsidianSearchListTests: XCTestCase {
     }
 
     func testEachTrackIsACheckboxSearchLine() {
-        let text = ObsidianRenderer.renderSearchList(
+        let text = ObsidianRenderer.renderDigSession(
             likes: [like("Toi Toi")], generatedAt: generatedAt
         )
 
@@ -24,7 +24,7 @@ final class ObsidianSearchListTests: XCTestCase {
     }
 
     func testTheRecordIsCarriedAsAFallback() {
-        let text = ObsidianRenderer.renderSearchList(
+        let text = ObsidianRenderer.renderDigSession(
             likes: [like("Toi Toi")], generatedAt: generatedAt
         )
 
@@ -33,7 +33,7 @@ final class ObsidianSearchListTests: XCTestCase {
     }
 
     func testATitleThatAlreadyNamesTheArtistIsNotDoubled() {
-        let text = ObsidianRenderer.renderSearchList(
+        let text = ObsidianRenderer.renderDigSession(
             likes: [like("Mr. G - Toi Toi")], generatedAt: generatedAt
         )
 
@@ -42,7 +42,7 @@ final class ObsidianSearchListTests: XCTestCase {
     }
 
     func testCatalogueBracketsAreStrippedForTheSearch() {
-        let text = ObsidianRenderer.renderSearchList(
+        let text = ObsidianRenderer.renderDigSession(
             likes: [like("Late Night (Enzo Siragusa Remix) [VL011]", artist: "Satoshi Tomiie")],
             generatedAt: generatedAt
         )
@@ -52,21 +52,29 @@ final class ObsidianSearchListTests: XCTestCase {
     }
 
     func testATrackWithoutTitleStillGetsALine() {
-        let text = ObsidianRenderer.renderSearchList(likes: [like(nil)], generatedAt: generatedAt)
+        let text = ObsidianRenderer.renderDigSession(likes: [like(nil)], generatedAt: generatedAt)
 
         XCTAssertTrue(text.contains("ohne Titel"))
     }
 
     func testAnEmptyListSaysSo() {
-        let text = ObsidianRenderer.renderSearchList(likes: [], generatedAt: generatedAt)
+        let text = ObsidianRenderer.renderDigSession(likes: [], generatedAt: generatedAt)
 
         XCTAssertTrue(text.contains("Noch nichts markiert"))
     }
 
     func testItPointsAtTheExistingLibraryNote() {
-        let text = ObsidianRenderer.renderSearchList(likes: [], generatedAt: generatedAt)
+        let text = ObsidianRenderer.renderDigSession(likes: [], generatedAt: generatedAt)
 
         XCTAssertTrue(text.contains("[[Musiksammlung - Trackliste]]"))
+    }
+
+    func testTheHeaderNamesTheSession() {
+        let text = ObsidianRenderer.renderDigSession(
+            likes: [like("Toi Toi")], generatedAt: generatedAt
+        )
+        XCTAssertTrue(text.contains("# Vinyl — Dig-Session"))
+        XCTAssertTrue(text.contains("Session vom 2026-02-02 · 1 Tracks"))
     }
 }
 
@@ -209,21 +217,46 @@ final class ObsidianWriterTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func testWritesTheNoteItWasAskedFor() async throws {
+    private let day = Date(timeIntervalSince1970: 1_770_000_000)
+
+    func testASessionGetsItsOwnDatedNote() async throws {
         let writer = ObsidianWriter(directory: directory)
 
-        try await writer.write("# Tracks", to: .searchList)
+        let url = try await writer.write("# Tracks", to: .digSession(day))
 
-        let text = try String(
-            contentsOf: directory.appendingPathComponent("Vinyl - Gesuchte Tracks.md")
-        )
-        XCTAssertTrue(text.contains("# Tracks"))
+        XCTAssertEqual(url.lastPathComponent, "Vinyl - Dig 2026-02-02.md")
+        XCTAssertTrue(try String(contentsOf: url).contains("# Tracks"))
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: directory.appendingPathComponent("Vinylsammlung.md").path
             ),
             "the other note must not be touched"
         )
+    }
+
+    func testASecondSessionTheSameDayDoesNotOverwriteTheFirst() async throws {
+        let writer = ObsidianWriter(directory: directory)
+
+        let first = try await writer.write("# Eins", to: .digSession(day))
+        let second = try await writer.write("# Zwei", to: .digSession(day))
+        let third = try await writer.write("# Drei", to: .digSession(day))
+
+        XCTAssertEqual(first.lastPathComponent, "Vinyl - Dig 2026-02-02.md")
+        XCTAssertEqual(second.lastPathComponent, "Vinyl - Dig 2026-02-02 (2).md")
+        XCTAssertEqual(third.lastPathComponent, "Vinyl - Dig 2026-02-02 (3).md")
+        XCTAssertTrue(try String(contentsOf: first).contains("# Eins"))
+        XCTAssertTrue(try String(contentsOf: second).contains("# Zwei"))
+    }
+
+    func testTheRecordNoteIsStillOverwritten() async throws {
+        let writer = ObsidianWriter(directory: directory)
+
+        let first = try await writer.write("# Eins", to: .records)
+        let second = try await writer.write("# Zwei", to: .records)
+
+        XCTAssertEqual(first, second)
+        XCTAssertTrue(try String(contentsOf: second).contains("# Zwei"))
+        XCTAssertFalse(try String(contentsOf: second).contains("# Eins"))
     }
 
     func testSecondWriteKeepsHandWrittenPart() async throws {

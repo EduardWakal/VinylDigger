@@ -1,11 +1,28 @@
 import Foundation
 
 /// The two vault notes serve different jobs, so they are written separately.
-public enum ObsidianDocument: String, CaseIterable, Sendable {
-    /// A Soulseek shopping list: the tracks that were marked while listening.
-    case searchList = "Vinyl - Gesuchte Tracks.md"
+public enum ObsidianDocument: Sendable, Equatable {
+    /// One dig session: the tracks marked since the last export, as a Soulseek
+    /// shopping list.
+    case digSession(Date)
     /// What is on each record, for when one has actually been bought.
-    case records = "Vinylsammlung.md"
+    case records
+
+    public var filename: String {
+        switch self {
+        case .digSession(let date): return "Vinyl - Dig \(ObsidianRenderer.format(date)).md"
+        case .records: return "Vinylsammlung.md"
+        }
+    }
+
+    /// A session note is the snapshot of one round, so a second export on the same
+    /// day is filed beside the first rather than replacing it.
+    public var overwrites: Bool {
+        switch self {
+        case .digSession: return false
+        case .records: return true
+        }
+    }
 }
 
 /// Turns the library into vault notes. Pure on purpose — the file access lives in
@@ -16,14 +33,14 @@ public enum ObsidianRenderer {
 
     /// One checkbox per liked track, in the shape the Downloads notes already use,
     /// plus the record it came from so a failed search has something to fall back on.
-    public static func renderSearchList(likes: [LikedTrack], generatedAt: Date) -> String {
+    public static func renderDigSession(likes: [LikedTrack], generatedAt: Date) -> String {
         var lines = [
-            "# Vinyl — Gesuchte Tracks",
+            "# Vinyl — Dig-Session",
             "",
             "Beim Hören markierte Tracks, als Suchzeilen für Nicotine+. Findet die Suche "
                 + "den Track nicht, hilft meist der Plattenname darunter.",
             "",
-            "Stand: \(format(generatedAt)) · \(likes.count) Tracks · Ablauf siehe [[Ablauf]].",
+            "Session vom \(format(generatedAt)) · \(likes.count) Tracks · Ablauf siehe [[Ablauf]].",
             "",
             "Schon in der Library? Gegenprüfen in [[Musiksammlung - Trackliste]].",
             ""
@@ -130,7 +147,7 @@ public enum ObsidianRenderer {
         return "\(artist) - \(cleaned)"
     }
 
-    private static func format(_ date: Date) -> String {
+    fileprivate static func format(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone(identifier: "Europe/Berlin")
@@ -155,7 +172,8 @@ public actor ObsidianWriter {
             .appendingPathComponent("Obsidian/Schakal/Musik")
     }
 
-    public func write(_ rendered: String, to document: ObsidianDocument) throws {
+    @discardableResult
+    public func write(_ rendered: String, to document: ObsidianDocument) throws -> URL {
         var isDirectory: ObjCBool = false
         guard
             FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
@@ -164,9 +182,24 @@ public actor ObsidianWriter {
             throw WriterError.directoryMissing(directory.path)
         }
 
-        let target = directory.appendingPathComponent(document.rawValue)
+        let target = document.overwrites
+            ? directory.appendingPathComponent(document.filename)
+            : freeName(for: document.filename)
         let existing = try? String(contentsOf: target, encoding: .utf8)
         let merged = ObsidianRenderer.merge(rendered: rendered, into: existing)
         try merged.write(to: target, atomically: true, encoding: .utf8)
+        return target
+    }
+
+    private func freeName(for filename: String) -> URL {
+        let base = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension
+        var candidate = directory.appendingPathComponent(filename)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = directory.appendingPathComponent("\(base) (\(counter)).\(ext)")
+            counter += 1
+        }
+        return candidate
     }
 }
