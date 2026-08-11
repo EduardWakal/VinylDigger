@@ -50,6 +50,21 @@ final class DiscoveryServiceTests: XCTestCase {
         XCTAssertEqual(cursor?.windowIndex, 1)
     }
 
+    func testReasonSurvivesAStyleContainingTheSeparator() async throws {
+        let database = try AppDatabase.inMemory()
+        let transport = StubTransport(replies: [
+            .init(body: results(hit(id: 1, artist: "Neu", want: 500)))
+        ])
+        let service = DiscoveryService(
+            database: database, client: makeClient(transport),
+            styles: ["Deep|House"], now: { self.now }
+        )
+
+        let cards = try await service.refresh(limit: 10)
+
+        XCTAssertTrue(cards[0].reason.hasPrefix("Deep|House \u{00B7} All-Time"))
+    }
+
     func testRefreshFilesStubReleasesSoTheyCanBeHydrated() async throws {
         let database = try AppDatabase.inMemory()
         let transport = StubTransport(replies: [
@@ -89,6 +104,31 @@ final class DiscoveryServiceTests: XCTestCase {
 
         XCTAssertEqual(cards.map(\.releaseID), [2])
         XCTAssertEqual(transport.sentRequests.count, 2)
+
+        // Verify the two requests target different axes
+        let url1 = transport.sentRequests[0].url
+        let url2 = transport.sentRequests[1].url
+        let components1 = URLComponents(url: url1!, resolvingAgainstBaseURL: false)
+        let components2 = URLComponents(url: url2!, resolvingAgainstBaseURL: false)
+
+        let query1 = Dictionary(
+            components1?.queryItems?.map { ($0.name, $0.value) } ?? [],
+            uniquingKeysWith: { first, _ in first }
+        )
+        let query2 = Dictionary(
+            components2?.queryItems?.map { ($0.name, $0.value) } ?? [],
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        // Both requests should have the same style
+        XCTAssertEqual(query1["style"], "Deep House")
+        XCTAssertEqual(query2["style"], "Deep House")
+
+        // First request (all-time window) should have no year parameter
+        XCTAssertNil(query1["year"])
+
+        // Second request should have year parameter for the 1990-1999 window
+        XCTAssertEqual(query2["year"], "1990-1999")
     }
 
     func testRefreshGivesUpAfterThreeEmptyAxes() async throws {

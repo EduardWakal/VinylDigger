@@ -106,8 +106,10 @@ public actor DiscoveryService {
     /// "Deep House · All-Time · 1.204 wollen's"
     private static func reason(for item: DiscoveryItemRecord) -> String {
         let parts = item.axisKey.split(separator: "|", omittingEmptySubsequences: false)
-        let style = parts.first.map(String.init) ?? ""
-        let window = parts.count > 1 ? String(parts[1]) : ""
+        // Style is user-entered and may contain the separator, so parse from the right:
+        // format is "style|window|page", where style can contain "|"
+        let style = parts.count >= 3 ? parts[0..<(parts.count - 2)].joined(separator: "|") : ""
+        let window = parts.count >= 2 ? String(parts[parts.count - 2]) : ""
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = Locale(identifier: "de_DE")
