@@ -1574,14 +1574,18 @@ enum DiscoveryStyles {
         return stored
     }
 
+    /// The axis key joins style, window and page with a pipe, so a style carrying
+    /// one would garble the line shown on the card. Returns nil for anything that
+    /// is empty once cleaned.
+    static func clean(_ style: String) -> String? {
+        let cleaned = style
+            .replacingOccurrences(of: "|", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
     static func save(_ styles: [String]) {
-        let cleaned = styles
-            // The axis key joins style, window and page with a pipe, so a style
-            // carrying one would garble the line shown on the card.
-            .map { $0.replacingOccurrences(of: "|", with: " ") }
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        UserDefaults.standard.set(cleaned, forKey: key)
+        UserDefaults.standard.set(styles.compactMap(clean), forKey: key)
     }
 }
 ```
@@ -1606,8 +1610,8 @@ Vor dem `Section` mit den Knöpfen einfügen:
                         Text(style)
                         Spacer()
                         Button("Entfernen", role: .destructive) {
-                            styles.removeAll { $0 == style }
-                            DiscoveryStyles.save(styles)
+                            DiscoveryStyles.save(styles.filter { $0 != style })
+                            styles = DiscoveryStyles.load()
                         }
                         .buttonStyle(.borderless)
                     }
@@ -1627,10 +1631,11 @@ Und die beiden Hilfsmethoden:
 
 ```swift
     private func addStyle() {
-        let trimmed = newStyle.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, !styles.contains(trimmed) else { return }
-        styles.append(trimmed)
-        DiscoveryStyles.save(styles)
+        guard let cleaned = DiscoveryStyles.clean(newStyle), !styles.contains(cleaned) else { return }
+        DiscoveryStyles.save(styles + [cleaned])
+        // Re-read rather than trust the local copy: save cleans, and the two must
+        // not drift apart.
+        styles = DiscoveryStyles.load()
         newStyle = ""
     }
 ```
