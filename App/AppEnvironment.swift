@@ -332,6 +332,11 @@ final class AppEnvironment: ObservableObject {
 
     private func loadDiscoveryCard() {
         guard let card = discoveryCard else { return }
+        // The player tab renders `displayedCard`, not the audio in isolation — so a
+        // discovery record has to be published as the inspected record too, or the
+        // player tab and the discovery tab disagree about which record is playing.
+        mode = .inspect
+        inspected = card
         loadIntoPlayer(card)
         Task {
             guard let service else { return }
@@ -341,6 +346,9 @@ final class AppEnvironment: ObservableObject {
                 let refreshed = try? service.refreshedCard(discoveryCards[index])
             else { return }
             discoveryCards[index] = refreshed
+            if inspected?.releaseID == card.releaseID {
+                inspected = refreshed
+            }
         }
     }
 

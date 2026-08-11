@@ -26,6 +26,10 @@ struct RootView: View {
                 .tabItem { Label("Statistik", systemImage: "chart.bar") }
                 .tag(2)
         }
+        // Mounted once on the TabView, not inside a single tab: macOS unmounts an
+        // unselected tab's views entirely, and a WKWebView outside the hierarchy
+        // does not reliably keep playing.
+        .background(PlayerHost(controller: environment.player).frame(width: 1, height: 1))
         .frame(minWidth: 720, minHeight: 720)
     }
 }

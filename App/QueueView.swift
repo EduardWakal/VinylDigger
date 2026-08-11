@@ -30,7 +30,6 @@ struct QueueView: View {
         }
         .padding(20)
         .frame(minWidth: 520, minHeight: 640)
-        .background(PlayerHost(controller: environment.player).frame(width: 1, height: 1))
         .task { await environment.start() }
         .sheet(isPresented: $pickingTracks) {
             if let card = environment.displayedCard {
