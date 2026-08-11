@@ -14,6 +14,10 @@ struct RootView: View {
                 .tabItem { Label("Player", systemImage: "play.circle") }
                 .tag(0)
 
+            DiscoveryView()
+                .tabItem { Label("Entdecken", systemImage: "chart.line.uptrend.xyaxis") }
+                .tag(3)
+
             LibraryView()
                 .tabItem { Label("Sammlung", systemImage: "square.stack") }
                 .tag(1)

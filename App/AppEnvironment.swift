@@ -12,6 +12,10 @@ final class AppEnvironment: ObservableObject {
     @Published var status = "bereit"
     @Published var selectedTab = 0
 
+    @Published var discoveryCards: [QueueCard] = []
+    @Published var discoveryIndex = 0
+    @Published var discoveryStatus = "noch nichts geholt"
+
     /// The player shows either the queue (digging) or one record picked from the
     /// library. Same card view either way — only the controls below it change.
     enum PlayerMode { case dig, inspect }
@@ -274,6 +278,70 @@ final class AppEnvironment: ObservableObject {
 
     func setManualWeight(_ weight: Double?, label id: Int) {
         try? service?.setManualWeight(weight, label: id)
+    }
+
+    // MARK: - Discovery
+
+    var discoveryCard: QueueCard? {
+        discoveryCards.indices.contains(discoveryIndex) ? discoveryCards[discoveryIndex] : nil
+    }
+
+    /// Pulls the next slice of the style charts. The service is rebuilt on every
+    /// call so a style added in settings takes effect at once instead of on the
+    /// next launch; it carries no state, so this costs nothing.
+    func refreshDiscovery() async {
+        guard let database, let client else {
+            discoveryStatus = "Noch keine Verbindung — Token prüfen"
+            return
+        }
+        let service = DiscoveryService(
+            database: database, client: client, styles: DiscoveryStyles.load()
+        )
+
+        discoveryStatus = "Charts werden geholt…"
+        do {
+            discoveryCards = try await service.refresh(limit: 50)
+            discoveryIndex = 0
+            if discoveryCards.isEmpty {
+                discoveryStatus = "nichts Neues gefunden — nochmal versuchen"
+            } else {
+                discoveryStatus = "\(discoveryCards.count) Platten"
+                loadDiscoveryCard()
+            }
+        } catch DiscoveryError.noStyles {
+            discoveryStatus = "Keine Styles gesetzt — in den Einstellungen eintragen"
+        } catch {
+            discoveryStatus = "Fehler: \(error)"
+        }
+    }
+
+    func decideDiscovery(_ kind: DecisionKind) async {
+        guard let service, let card = discoveryCard else { return }
+        do {
+            try await service.decide(releaseID: card.releaseID, kind: kind)
+            if discoveryIndex + 1 < discoveryCards.count {
+                discoveryIndex += 1
+                loadDiscoveryCard()
+            } else {
+                await refreshDiscovery()
+            }
+        } catch {
+            discoveryStatus = "Fehler: \(error)"
+        }
+    }
+
+    private func loadDiscoveryCard() {
+        guard let card = discoveryCard else { return }
+        loadIntoPlayer(card)
+        Task {
+            guard let service else { return }
+            try? await service.hydrateRelease(releaseID: card.releaseID)
+            guard
+                let index = discoveryCards.firstIndex(where: { $0.releaseID == card.releaseID }),
+                let refreshed = try? service.refreshedCard(discoveryCards[index])
+            else { return }
+            discoveryCards[index] = refreshed
+        }
     }
 
     // MARK: - Obsidian
