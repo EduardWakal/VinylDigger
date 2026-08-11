@@ -380,34 +380,57 @@ final class AppEnvironment: ObservableObject {
 
     // MARK: - Obsidian
 
-    /// Two notes for two jobs: the search list is what gets taken to Soulseek, the
+    /// Two notes for two jobs: the session list is what gets taken to Soulseek, the
     /// record list is what is on a record once it is bought.
-    func exportToObsidian(_ document: ObsidianDocument) async {
+    ///
+    /// The cursor moves only after the note is on disk. A failed write therefore
+    /// leaves the tracks in the next session rather than dropping them.
+    func exportDigSession() async {
         guard let service else {
             status = "Noch keine Verbindung — Token prüfen"
             return
         }
         do {
             let now = Date()
-            let text: String
-            switch document {
-            case .searchList:
-                text = ObsidianRenderer.renderSearchList(
-                    likes: try service.likedTracks(), generatedAt: now
-                )
-            case .records:
-                text = ObsidianRenderer.renderRecords(
-                    library: try service.library(kind: nil),
-                    likes: try service.likedTracks(),
-                    generatedAt: now
-                )
+            let likes = try service.digSession(until: now)
+            guard !likes.isEmpty else {
+                status = "nichts Neues seit dem letzten Export"
+                return
             }
-            try await ObsidianWriter(directory: ObsidianWriter.defaultDirectory)
-                .write(text, to: document)
-            status = "\(document.rawValue) geschrieben"
+            let text = ObsidianRenderer.renderDigSession(likes: likes, generatedAt: now)
+            let url = try await ObsidianWriter(directory: ObsidianWriter.defaultDirectory)
+                .write(text, to: .digSession(now))
+            try service.markExported(at: now)
+            status = "\(url.lastPathComponent) · \(likes.count) Tracks"
         } catch {
             status = "Obsidian: \(error)"
         }
+    }
+
+    func exportRecords() async {
+        guard let service else {
+            status = "Noch keine Verbindung — Token prüfen"
+            return
+        }
+        do {
+            let text = ObsidianRenderer.renderRecords(
+                library: try service.library(kind: nil),
+                likes: try service.likedTracks(),
+                generatedAt: Date()
+            )
+            let url = try await ObsidianWriter(directory: ObsidianWriter.defaultDirectory)
+                .write(text, to: .records)
+            status = "\(url.lastPathComponent) geschrieben"
+        } catch {
+            status = "Obsidian: \(error)"
+        }
+    }
+
+    /// How many marked tracks the next session would carry. Drives the label on
+    /// the export button, so it is answered from the database on every reload.
+    func openDigSessionCount() -> Int {
+        guard let service else { return 0 }
+        return (try? service.digSession(until: Date()))?.count ?? 0
     }
 
     // MARK: - Dig list

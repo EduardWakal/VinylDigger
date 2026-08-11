@@ -7,6 +7,7 @@ struct StatsView: View {
     @State private var artists: [ArtistRecord] = []
     @State private var labels: [LabelRecord] = []
     @State private var likes: [LikedTrack] = []
+    @State private var openTracks = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -69,15 +70,19 @@ struct StatsView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             Button {
-                Task { await environment.exportToObsidian(.searchList) }
+                Task {
+                    await environment.exportDigSession()
+                    reload()
+                }
             } label: {
-                Label("Suchliste", systemImage: "arrow.up.doc")
+                Label("Dig-Session (\(openTracks))", systemImage: "arrow.up.doc")
             }
             .buttonStyle(.borderedProminent)
-            .help("Gemochte Tracks als Suchzeilen für Nicotine+ in den Vault")
+            .disabled(openTracks == 0)
+            .help("Die seit dem letzten Export markierten Tracks als eigene Notiz in den Vault")
 
             Button {
-                Task { await environment.exportToObsidian(.records) }
+                Task { await environment.exportRecords() }
             } label: {
                 Label("Platten + Tracklisten", systemImage: "arrow.up.doc.on.clipboard")
             }
@@ -110,6 +115,7 @@ struct StatsView: View {
         artists = weights.artists
         labels = weights.labels
         likes = environment.likedTracks()
+        openTracks = environment.openDigSessionCount()
     }
 }
 
