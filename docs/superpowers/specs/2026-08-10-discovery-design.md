@@ -182,6 +182,25 @@ neuen Künstlers nach, und die normale Queue wird dadurch breiter.
 Das ist der eigentliche Zweck: der Discovery-Tab ist der Einspeiser, den der Graph bisher
 nicht hatte. Die bestehende Queue bleibt geschmacksgetrieben, bekommt aber neues Futter.
 
+**Nur über Entscheidungen, nicht über die Hintertür.** Damit die App eine gefundene Platte
+hydrieren, anzeigen und entscheiden kann, legt der Service für jeden Treffer eine Stub-Zeile in
+`release` an. Der erste Entwurf nahm an, diese Stubs könnten die normale Queue nicht erreichen,
+weil ihnen die Graph-Affinität fehlt. Das stimmt nur für unbekannte Künstler. Bei einem Künstler,
+den der Graph schon kennt — und genau die behält der Ranker bewusst —, ist die Affinität größer
+als null, der Score also auch, und die Platte stünde ungefragt in der Queue. Ihr vierstelliger
+`want`-Wert würde zusätzlich die Nachfrage-Normalisierung aller anderen Platten stauchen.
+
+Deshalb trägt `release` eine Spalte `discovered`. `rebuildQueue` überspringt eine so markierte
+Platte, solange keine Entscheidung zu ihr vorliegt; danach verhält sie sich wie jede andere. Der
+Discovery-Tab selbst liest die Spalte nicht — für ihn zählt weiter nur `owned` und die
+Entscheidung.
+
+**Discards zählen hier nicht.** Ein `discard` schreibt sonst −0.18 auf den Künstler. Im
+Discovery-Tab hat der Nutzer den Künstler aber nicht gewählt, die Rotation hat ihn vorgesetzt,
+und übersprungen wird oft, was man längst besitzt. Sechs übersprungene Chart-Platten würden
+einen geschätzten Künstler um mehr als einen Punkt herunterziehen und über den Propagator alles
+mit, was an ihm hängt. Loves speisen den Graphen also, Discards auf `discovered`-Platten nicht.
+
 ## Oberfläche
 
 Ein neuer Tab in `RootView`. Kartenlayout und `PlayerController` von `QueueView`
