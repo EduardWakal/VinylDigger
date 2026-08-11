@@ -1746,6 +1746,10 @@ Als neuer Abschnitt vor `// MARK: - Obsidian`:
 
     private func loadDiscoveryCard() {
         guard let card = discoveryCard else { return }
+        // The player tab renders `displayedCard`, so a discovery record has to be
+        // published there too — otherwise it shows one record while another plays.
+        mode = .inspect
+        inspected = card
         loadIntoPlayer(card)
         Task {
             guard let service else { return }
@@ -1829,6 +1833,16 @@ In `RootView` hinter dem Player-Tab:
 ```
 
 Der Tag 3 ist frei — Sammlung ist 1, Statistik 2. Die Reihenfolge im `TabView` bestimmt die Anzeige, nicht der Tag.
+
+Dazu wandert der `PlayerHost` aus `QueueView` heraus an das `TabView`:
+
+```swift
+        }
+        .background(PlayerHost(controller: environment.player).frame(width: 1, height: 1))
+        .frame(minWidth: 720, minHeight: 720)
+```
+
+`PlayerHost` reicht SwiftUI die eine `WKWebView` durch, die `PlayerController` besitzt. Blieb sie im Player-Tab, verließe sie die View-Hierarchie, sobald der Entdecken-Tab vorn ist — und eine `WKWebView` außerhalb der Hierarchie spielt nicht zuverlässig ab. Zweimal einhängen geht nicht: beide Stellen würden dieselbe `NSView` liefern. Also genau einmal, über den Tabs.
 
 - [ ] **Step 4: Bauen**
 
