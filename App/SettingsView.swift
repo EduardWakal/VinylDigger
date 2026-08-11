@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var token = ""
     @State private var username = ""
     @State private var message = ""
+    @State private var styles: [String] = []
+    @State private var newStyle = ""
 
     private let secrets = KeychainSecretStore()
 
@@ -17,6 +19,28 @@ struct SettingsView: View {
                     .textContentType(.password)
                 TextField("Benutzername", text: $username)
                 Text("Token holen unter discogs.com/settings/developers. Er wird im Schlüsselbund abgelegt, nie auf der Festplatte.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Discovery-Styles") {
+                ForEach(styles, id: \.self) { style in
+                    HStack {
+                        Text(style)
+                        Spacer()
+                        Button("Entfernen", role: .destructive) {
+                            styles.removeAll { $0 == style }
+                            DiscoveryStyles.save(styles)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                HStack {
+                    TextField("Style hinzufügen", text: $newStyle)
+                    Button("Hinzufügen") { addStyle() }
+                        .disabled(newStyle.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                Text("Genau so schreiben, wie Discogs den Style führt — etwa „Deep House\".")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -42,6 +66,7 @@ struct SettingsView: View {
     private func load() {
         token = (try? secrets.read(.discogsToken)).flatMap { $0 } ?? ""
         username = (try? secrets.read(.discogsUsername)).flatMap { $0 } ?? ""
+        styles = DiscoveryStyles.load()
     }
 
     private func save() {
@@ -66,5 +91,13 @@ struct SettingsView: View {
         try? secrets.delete(.discogsToken)
         token = ""
         message = "Token gelöscht"
+    }
+
+    private func addStyle() {
+        let trimmed = newStyle.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !styles.contains(trimmed) else { return }
+        styles.append(trimmed)
+        DiscoveryStyles.save(styles)
+        newStyle = ""
     }
 }
