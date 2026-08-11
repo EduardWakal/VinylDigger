@@ -57,7 +57,7 @@ struct QueueView: View {
                 Button {
                     environment.backToDig()
                 } label: {
-                    Label("Dig-Modus", systemImage: "shovel")
+                    Label("Dig-Modus", systemImage: "arrow.uturn.backward")
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.escape, modifiers: [])

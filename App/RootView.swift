@@ -6,10 +6,13 @@ import VinylDiggerKit
 struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
 
+    // TabView writes its selection back while this view is updating, so the
+    // binding cannot point straight at a @Published on the environment. The tab
+    // held here, mirrored both ways below, keeps the write out of the update.
+    @State private var tab = 0
+
     var body: some View {
-        // The selection lives in the environment so the library can send a record
-        // over to the player.
-        TabView(selection: $environment.selectedTab) {
+        TabView(selection: $tab) {
             QueueView()
                 .tabItem { Label("Player", systemImage: "play.circle") }
                 .tag(0)
@@ -31,5 +34,9 @@ struct RootView: View {
         // does not reliably keep playing.
         .background(PlayerHost(controller: environment.player).frame(width: 1, height: 1))
         .frame(minWidth: 720, minHeight: 720)
+        // The environment stays the channel the library uses to send a record over
+        // to the player, so the two selections are kept level in both directions.
+        .onChange(of: environment.selectedTab) { _, requested in tab = requested }
+        .onChange(of: tab) { _, selected in environment.selectedTab = selected }
     }
 }

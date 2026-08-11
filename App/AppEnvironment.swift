@@ -364,7 +364,18 @@ final class AppEnvironment: ObservableObject {
             if inspected?.releaseID == card.releaseID {
                 inspected = refreshed
             }
+            reloadPlayerIfVideosArrived(was: card, now: refreshed)
         }
+    }
+
+    /// A discovery stub is filed before Discogs has been asked for its detail, so
+    /// it carries no videos and the player was handed an empty playlist. Once the
+    /// hydration brings them in, the player has to be handed the record again —
+    /// otherwise the track rows are on screen and every one of them plays nothing.
+    private func reloadPlayerIfVideosArrived(was old: QueueCard, now refreshed: QueueCard) {
+        guard old.videoIDs.isEmpty, !refreshed.videoIDs.isEmpty else { return }
+        guard displayedCard?.releaseID == refreshed.releaseID else { return }
+        loadIntoPlayer(refreshed)
     }
 
     // MARK: - Obsidian
@@ -485,7 +496,9 @@ final class AppEnvironment: ObservableObject {
             let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
             let refreshed = try? service.refreshedCard(cards[index])
         else { return }
+        let previous = cards[index]
         cards[index] = refreshed
+        reloadPlayerIfVideosArrived(was: previous, now: refreshed)
     }
 
     private func bootstrapIfEmpty(_ database: AppDatabase) async throws {
