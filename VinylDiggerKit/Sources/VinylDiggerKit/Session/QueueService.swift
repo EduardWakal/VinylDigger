@@ -135,6 +135,12 @@ public actor QueueService {
 
             for decision in decisions {
                 guard let release = releasesByID[decision.releaseID] else { continue }
+                // The discovery tab is a high-discard surface by design — most of
+                // what it shows is meant to be passed over. Crediting those discards
+                // would demote artists the user actually likes, since a discovered
+                // record that resolves to an artist is exactly a known-artist one.
+                // A love still counts; that is the point of the feature.
+                if decision.kind == .discard && release.discovered { continue }
                 credit(release, TasteSignal.decisionWeight(decision.kind))
             }
             for release in releases where release.owned {
@@ -190,18 +196,24 @@ public actor QueueService {
                 try Int.fetchAll(db, sql: "SELECT DISTINCT releaseID FROM video WHERE unavailable = 0")
             )
 
-            let candidates = releases.map { release in
-                ScoringCandidate(
-                    releaseID: release.id,
-                    artistIDs: artistIDsByName[release.artistName].map { [$0] } ?? [],
-                    labelID: release.labelID,
-                    want: release.want,
-                    isDecided: latestDecision[release.id] != nil,
-                    isOwned: release.owned,
-                    revisitAt: latestDecision[release.id]?.revisitAt,
-                    preview: previewState(for: release, hasVideo: releasesWithVideo.contains(release.id))
-                )
-            }
+            // A discovered stub carries a real artist name and a real want count,
+            // so it can score above zero and would otherwise crowd the ordinary,
+            // taste-driven queue before the user ever weighed in on it. Once a
+            // decision exists it behaves like any other release from then on.
+            let candidates = releases
+                .filter { !($0.discovered && latestDecision[$0.id] == nil) }
+                .map { release in
+                    ScoringCandidate(
+                        releaseID: release.id,
+                        artistIDs: artistIDsByName[release.artistName].map { [$0] } ?? [],
+                        labelID: release.labelID,
+                        want: release.want,
+                        isDecided: latestDecision[release.id] != nil,
+                        isOwned: release.owned,
+                        revisitAt: latestDecision[release.id]?.revisitAt,
+                        preview: previewState(for: release, hasVideo: releasesWithVideo.contains(release.id))
+                    )
+                }
 
             let scored = Scorer.score(
                 candidates: candidates, weights: weights, labelNames: labelNames, now: current

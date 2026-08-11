@@ -79,13 +79,17 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
     /// no marker — plenty of releases carry none, and those must not be refetched
     /// on every visit.
     public var detailFetched: Bool
+    /// True for a stub `DiscoveryService.store` filed from a style-chart hit.
+    /// Kept out of the ordinary queue until the user has decided on it — see
+    /// `QueueService.rebuildQueue`.
+    public var discovered: Bool
 
     public init(
         id: Int, title: String, artistName: String, year: Int?, catno: String?,
         labelID: Int?, styles: [String], want: Int, have: Int, hydrated: Bool,
         owned: Bool = false, rating: Double = 0, ratingCount: Int = 0,
         coverURL: String? = nil, detailFetched: Bool = false,
-        tracklist: [ReleaseTrack] = []
+        tracklist: [ReleaseTrack] = [], discovered: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -103,6 +107,7 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
         self.coverURL = coverURL
         self.detailFetched = detailFetched
         self.tracklist = tracklist
+        self.discovered = discovered
     }
 }
 

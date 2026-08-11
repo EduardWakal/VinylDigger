@@ -214,6 +214,16 @@ public final class AppDatabase {
             }
         }
 
+        // Marks a release filed by DiscoveryService as a stub. Such a release can
+        // resolve to a real artist and carry a real want count, so without this
+        // marker it would score above zero and leak into the ordinary queue before
+        // the user ever decided on it.
+        migrator.registerMigration("v12") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "discovered", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

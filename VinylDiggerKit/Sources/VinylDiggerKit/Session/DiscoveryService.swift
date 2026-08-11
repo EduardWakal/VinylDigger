@@ -77,6 +77,12 @@ public actor DiscoveryService {
                     .filter(Column("releaseID") == item.releaseID && Column("unavailable") == false)
                     .order(Column("position"))
                     .fetchAll(db)
+                let likedIDs = Set(
+                    try TrackLikeRecord
+                        .filter(Column("releaseID") == item.releaseID)
+                        .fetchAll(db)
+                        .map(\.youtubeID)
+                )
 
                 return QueueCard(
                     releaseID: item.releaseID,
@@ -95,7 +101,8 @@ public actor DiscoveryService {
                     tracks: videos.map {
                         QueueTrack(
                             youtubeID: $0.youtubeID, title: $0.title,
-                            position: $0.trackPosition, duration: $0.duration
+                            position: $0.trackPosition, duration: $0.duration,
+                            liked: likedIDs.contains($0.youtubeID)
                         )
                     }
                 )
@@ -204,7 +211,11 @@ public actor DiscoveryService {
                     catno: hit.catno, axisKey: axis.key, score: entry.score,
                     rank: rank, fetchedAt: stamp
                 )
-                try item.insert(db)
+                // Two hits in one page can share a release id when neither carries a
+                // master id — `DiscoveryRanker.deduplicate` only merges by master id,
+                // so both survive as separate candidates here. `insert` would throw
+                // on the second one's primary key and abort the whole refresh.
+                try item.save(db)
 
                 // Filing a stub is what lets the existing machinery work on these
                 // records: hydrateRelease fills them in, refreshedCard reads them,
@@ -213,7 +224,8 @@ public actor DiscoveryService {
                 var release = ReleaseRecord(
                     id: hit.id, title: hit.recordTitle, artistName: hit.artistName,
                     year: hit.year, catno: hit.catno, labelID: nil,
-                    styles: hit.styles, want: hit.want, have: hit.have, hydrated: false
+                    styles: hit.styles, want: hit.want, have: hit.have, hydrated: false,
+                    discovered: true
                 )
                 try release.save(db)
             }

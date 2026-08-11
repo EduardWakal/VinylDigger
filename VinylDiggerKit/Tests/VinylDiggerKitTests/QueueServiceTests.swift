@@ -417,4 +417,103 @@ final class QueueServiceTests: XCTestCase {
         XCTAssertTrue(edges.contains { $0.kind == .alias && $0.toID == 999 })
         XCTAssertTrue(edges.contains { $0.kind == .group && $0.toID == 555 })
     }
+
+    // MARK: - Discovery leak (review item 1)
+
+    func testDiscoveredReleaseStaysOutOfQueueUntilDecided() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            // Resolves to the seeded artist, so before the fix its affinity — and
+            // score — would be nonzero even though nobody has decided on it yet.
+            var discovered = ReleaseRecord(
+                id: 9001, title: "Chart Hit", artistName: "Carl A. Finlow",
+                year: 2020, catno: nil, labelID: nil, styles: [], want: 10, have: 1,
+                hydrated: true, discovered: true
+            )
+            try discovered.save(database)
+        }
+
+        let cards = try service.rebuildQueue(limit: 10)
+
+        XCTAssertFalse(
+            cards.contains { $0.releaseID == 9001 },
+            "a discovery stub must not reach the ordinary queue before the user decides on it"
+        )
+    }
+
+    func testDiscoveredReleaseReturnsToQueueLikeAnyOtherOnceDecided() async throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            var discovered = ReleaseRecord(
+                id: 9001, title: "Chart Hit", artistName: "Carl A. Finlow",
+                year: 2020, catno: nil, labelID: nil, styles: [], want: 10, have: 1,
+                hydrated: true, discovered: true
+            )
+            try discovered.save(database)
+        }
+
+        try await service.decide(releaseID: 9001, kind: .later)
+
+        // rebuildQueue only needs a fresh clock past the revisit date — a new
+        // service pointed at the same database is enough, no network involved.
+        let later = now.addingTimeInterval(QueueService.revisitInterval + 1)
+        let laterClient = DiscogsClient(
+            transport: StubTransport(replies: []), secrets: InMemorySecretStore(),
+            limiter: RateLimiter(capacity: 100, refillPerSecond: 100),
+            userAgent: "VinylDiggerTests/1.0"
+        )
+        let laterService = QueueService(
+            database: db, client: laterClient,
+            outbox: OutboxProcessor(database: db, writer: laterClient, username: "schakal", now: { later }),
+            username: "schakal", now: { later }
+        )
+
+        let cards = try laterService.rebuildQueue(limit: 10)
+
+        XCTAssertTrue(
+            cards.contains { $0.releaseID == 9001 },
+            "once the user has decided on it, a discovered record is no longer held back by the flag alone"
+        )
+    }
+
+    // MARK: - Discovery discards do not debit taste (review item 2)
+
+    func testDiscardingADiscoveredReleaseDoesNotDebitTheResolvedLabel() async throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            // Neither release's artist is in the graph, so their score is driven
+            // purely by label 15's propagated weight — isolating the credit under
+            // test from the (separately floor-clamped) artist weight column.
+            // Both `want` values stay well under release 2831's 582, so max-want
+            // normalisation is identical before and after the decision.
+            var probe = ReleaseRecord(
+                id: 5000, title: "Probe", artistName: "Nobody In The Graph",
+                year: 2001, catno: nil, labelID: 15, styles: [], want: 10, have: 1,
+                hydrated: true
+            )
+            try probe.save(database)
+            var discovered = ReleaseRecord(
+                id: 9001, title: "Chart Hit", artistName: "Nobody In The Graph",
+                year: 2020, catno: nil, labelID: 15, styles: [], want: 10, have: 1,
+                hydrated: true, discovered: true
+            )
+            try discovered.save(database)
+        }
+
+        _ = try service.rebuildQueue(limit: 10)
+        let before = try XCTUnwrap(try db.read { try QueueItemRecord.fetchOne($0, key: 5000) })
+
+        try await service.decide(releaseID: 9001, kind: .discard)
+
+        _ = try service.rebuildQueue(limit: 10)
+        let after = try XCTUnwrap(try db.read { try QueueItemRecord.fetchOne($0, key: 5000) })
+
+        XCTAssertEqual(
+            before.score, after.score, accuracy: 0.0001,
+            "discarding a discovered record must not debit the label weight it resolves to"
+        )
+    }
 }

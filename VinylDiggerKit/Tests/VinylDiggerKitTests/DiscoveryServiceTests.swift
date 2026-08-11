@@ -210,4 +210,54 @@ final class DiscoveryServiceTests: XCTestCase {
 
         XCTAssertEqual(cards.map(\.releaseID), [2, 1])
     }
+
+    // MARK: - review item 5: liked tracks on discovery cards
+
+    func testCurrentBatchMarksLikedTracks() async throws {
+        let database = try AppDatabase.inMemory()
+        let transport = StubTransport(replies: [
+            .init(body: results(hit(id: 1, artist: "Neu", want: 500)))
+        ])
+        let service = DiscoveryService(
+            database: database, client: makeClient(transport),
+            styles: ["Deep House"], now: { self.now }
+        )
+        _ = try await service.refresh(limit: 10)
+
+        try database.write { db in
+            var video = VideoRecord(
+                id: nil, releaseID: 1, youtubeID: "abc", title: nil,
+                position: 0, unavailable: false
+            )
+            try video.insert(db)
+            var like = TrackLikeRecord(id: nil, releaseID: 1, youtubeID: "abc", likedAt: self.now)
+            try like.insert(db)
+        }
+
+        let cards = try service.currentBatch()
+
+        XCTAssertEqual(cards[0].tracks.first?.liked, true)
+    }
+
+    // MARK: - review item 6: store upserts instead of inserting
+
+    func testRefreshDoesNotThrowWhenDuplicateReleaseIDsSurviveDedup() async throws {
+        let database = try AppDatabase.inMemory()
+        // Two hits with the same release id and no master id both survive
+        // `DiscoveryRanker.deduplicate`, which only merges by master id.
+        let transport = StubTransport(replies: [
+            .init(body: results([
+                hit(id: 1, artist: "Neu", want: 500),
+                hit(id: 1, artist: "Neu", want: 500)
+            ].joined(separator: ",")))
+        ])
+        let service = DiscoveryService(
+            database: database, client: makeClient(transport),
+            styles: ["Deep House"], now: { self.now }
+        )
+
+        let cards = try await service.refresh(limit: 10)
+
+        XCTAssertEqual(cards.map(\.releaseID), [1])
+    }
 }

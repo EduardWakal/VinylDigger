@@ -102,18 +102,28 @@ final class AppEnvironment: ObservableObject {
     }
 
     /// Records the chosen tracks, then files the release on the wantlist.
+    ///
+    /// Acts on `displayedCard`, not `currentCard` — with a discovery or library
+    /// record open for inspection, `currentCard` still points at whatever the
+    /// queue happens to be sitting on, which is not what is on screen.
     func loveWithTracks(_ youtubeIDs: [String]) async {
-        guard let service, let card = currentCard else { return }
+        guard let service, let card = displayedCard else { return }
         for id in youtubeIDs where !(card.tracks.first { $0.youtubeID == id }?.liked ?? false) {
             _ = try? service.toggleTrackLike(releaseID: card.releaseID, youtubeID: id)
         }
         await decide(.love)
     }
 
+    /// The record decided on is always `displayedCard`, captured once up front so
+    /// it cannot drift from the record the queue then advances past. Advancing
+    /// the queue only makes sense in dig mode — in inspect mode there is no queue
+    /// position under the card to move past.
     func decide(_ kind: DecisionKind) async {
-        guard let service, let card = currentCard else { return }
+        guard let service, let card = displayedCard else { return }
+        let advancingQueue = mode == .dig
         do {
             try await service.decide(releaseID: card.releaseID, kind: kind)
+            guard advancingQueue else { return }
             if currentIndex + 1 < cards.count {
                 currentIndex += 1
                 loadCurrentCard()
@@ -177,6 +187,10 @@ final class AppEnvironment: ObservableObject {
         if let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
            let refreshed = try? service.refreshedCard(cards[index]) {
             cards[index] = refreshed
+        }
+        if let index = discoveryCards.firstIndex(where: { $0.releaseID == releaseID }),
+           let refreshed = try? service.refreshedCard(discoveryCards[index]) {
+            discoveryCards[index] = refreshed
         }
         if let inspected, inspected.releaseID == releaseID,
            let refreshed = try? service.refreshedCard(inspected) {
@@ -322,6 +336,7 @@ final class AppEnvironment: ObservableObject {
             if discoveryIndex + 1 < discoveryCards.count {
                 discoveryIndex += 1
                 loadDiscoveryCard()
+                discoveryStatus = "\(discoveryCards.count - discoveryIndex) verbleibend"
             } else {
                 await refreshDiscovery()
             }
