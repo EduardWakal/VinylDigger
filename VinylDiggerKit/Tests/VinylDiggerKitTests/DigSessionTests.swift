@@ -127,4 +127,56 @@ final class DigSessionTests: XCTestCase {
 
         XCTAssertEqual(try service.likedTracks().count, 2, "renderRecords needs all of them")
     }
+
+    func testBoundaryConditionsOnUntilAndCursor() throws {
+        let (service, db) = try makeService()
+        let cursor = now.addingTimeInterval(100)
+        let until = now.addingTimeInterval(200)
+
+        try db.write { database in
+            var release = ReleaseRecord(
+                id: 9999, title: "Test Release", artistName: "Test Artist",
+                year: 2020, catno: "TST01", labelID: nil, styles: ["Test"],
+                want: 1, have: 1, hydrated: true, owned: false
+            )
+            try release.save(database)
+            var video = VideoRecord(
+                id: nil, releaseID: 9999, youtubeID: "boundary-test",
+                title: "Track", position: 0, unavailable: false, duration: 300,
+                trackPosition: "A1"
+            )
+            try video.insert(database)
+
+            var atCursor = TrackLikeRecord(
+                id: nil, releaseID: 9999, youtubeID: "at-cursor",
+                likedAt: cursor
+            )
+            try atCursor.insert(database)
+            var beforeCursor = TrackLikeRecord(
+                id: nil, releaseID: 9999, youtubeID: "before-cursor",
+                likedAt: cursor.addingTimeInterval(-1)
+            )
+            try beforeCursor.insert(database)
+            var atUntil = TrackLikeRecord(
+                id: nil, releaseID: 9999, youtubeID: "at-until",
+                likedAt: until
+            )
+            try atUntil.insert(database)
+            var afterUntil = TrackLikeRecord(
+                id: nil, releaseID: 9999, youtubeID: "after-until",
+                likedAt: until.addingTimeInterval(1)
+            )
+            try afterUntil.insert(database)
+        }
+
+        try service.markExported(at: cursor)
+
+        let session = try service.digSession(until: until)
+        let youtubeIDs = session.map(\.youtubeID)
+
+        XCTAssertTrue(youtubeIDs.contains("at-until"), "likedAt <= until includes exactly at until")
+        XCTAssertFalse(youtubeIDs.contains("at-cursor"), "likedAt > since excludes exactly at cursor")
+        XCTAssertFalse(youtubeIDs.contains("before-cursor"), "likedAt > since excludes before cursor")
+        XCTAssertFalse(youtubeIDs.contains("after-until"), "likedAt <= until excludes after until")
+    }
 }
