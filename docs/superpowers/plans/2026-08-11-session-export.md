@@ -711,9 +711,19 @@ struct TransportView: View {
     let onLikeCurrent: () -> Void
 ```
 
-Der Rumpf ab `@State private var scrub: TimeInterval = 0` wird unverändert übernommen. `formatSeconds` bleibt eine freie `private func` am Ende dieser neuen Datei.
+Der Rumpf ab `@State private var scrub: TimeInterval = 0` wird unverändert übernommen.
 
-Achtung: `TrackList` in `QueueView.swift` und `CoverView` rufen `formatSeconds` ebenfalls auf. Weil `private` auf oberster Ebene dateiweit gilt, braucht `QueueView.swift` eine eigene Kopie. Deshalb: in `QueueView.swift` `formatSeconds` **stehen lassen** und in `TransportView.swift` eine zweite `private func formatSeconds` mit gleichem Rumpf anlegen. Zwei vier Zeilen lange private Helfer sind billiger als ein neuer geteilter Typ.
+`formatSeconds` wandert mit, aber **ohne** `private`, weil `TrackList` in `QueueView.swift` sie ebenfalls aufruft und `private` auf oberster Ebene nur dateiweit gilt. Am Ende von `TransportView.swift` steht also die einzige Definition:
+
+```swift
+func formatSeconds(_ seconds: TimeInterval) -> String {
+    guard seconds.isFinite, seconds > 0 else { return "0:00" }
+    let total = Int(seconds.rounded())
+    return String(format: "%d:%02d", total / 60, total % 60)
+}
+```
+
+In `QueueView.swift` wird die Funktion samt ihrer `private`-Fassung ersatzlos gestrichen (Zeilen 332–336). Sie liegt nur noch einmal im Modul.
 
 - [ ] **Step 2: Take the bar out of the queue view**
 
