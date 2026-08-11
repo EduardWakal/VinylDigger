@@ -110,38 +110,69 @@ extension QueueService {
     }
 
     public nonisolated func likedTracks() throws -> [LikedTrack] {
+        try database.read { db in try Self.likedTracks(in: db) { _, _ in true } }
+    }
+
+    /// The tracks of one dig session: everything marked since the last export that
+    /// is not already on a record in the collection. `until` is the stamp the
+    /// export runs with — without it a like set while the note is being written
+    /// would be overtaken by the advancing cursor and never exported.
+    public nonisolated func digSession(until: Date) throws -> [LikedTrack] {
         try database.read { db in
-            let labelNames = Dictionary(
-                try LabelRecord.fetchAll(db).map { ($0.id, $0.name) },
-                uniquingKeysWith: { first, _ in first }
-            )
+            let since = try ExportCursorRecord
+                .fetchOne(db, key: ExportCursorRecord.singletonID)?
+                .lastExportedAt
 
-            return try TrackLikeRecord
-                .order(Column("likedAt").desc)
-                .fetchAll(db)
-                .compactMap { like in
-                    guard let release = try ReleaseRecord.fetchOne(db, key: like.releaseID) else {
-                        return nil
-                    }
-                    let video = try VideoRecord
-                        .filter(
-                            Column("releaseID") == like.releaseID
-                            && Column("youtubeID") == like.youtubeID
-                        )
-                        .fetchOne(db)
-
-                    return LikedTrack(
-                        releaseID: release.id,
-                        releaseTitle: release.title,
-                        artistName: release.artistName,
-                        labelName: release.labelID.flatMap { labelNames[$0] },
-                        trackPosition: video?.trackPosition,
-                        trackTitle: video?.title,
-                        youtubeID: like.youtubeID,
-                        likedAt: like.likedAt
-                    )
-                }
+            return try Self.likedTracks(in: db) { like, release in
+                guard !release.owned, like.likedAt <= until else { return false }
+                guard let since else { return true }
+                return like.likedAt > since
+            }
         }
+    }
+
+    public nonisolated func markExported(at stamp: Date) throws {
+        try database.write { db in
+            var record = ExportCursorRecord(lastExportedAt: stamp)
+            try record.save(db)
+        }
+    }
+
+    private static func likedTracks(
+        in db: Database, where include: (TrackLikeRecord, ReleaseRecord) -> Bool
+    ) throws -> [LikedTrack] {
+        let labelNames = Dictionary(
+            try LabelRecord.fetchAll(db).map { ($0.id, $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return try TrackLikeRecord
+            .order(Column("likedAt").desc)
+            .fetchAll(db)
+            .compactMap { like in
+                guard
+                    let release = try ReleaseRecord.fetchOne(db, key: like.releaseID),
+                    include(like, release)
+                else { return nil }
+
+                let video = try VideoRecord
+                    .filter(
+                        Column("releaseID") == like.releaseID
+                        && Column("youtubeID") == like.youtubeID
+                    )
+                    .fetchOne(db)
+
+                return LikedTrack(
+                    releaseID: release.id,
+                    releaseTitle: release.title,
+                    artistName: release.artistName,
+                    labelName: release.labelID.flatMap { labelNames[$0] },
+                    trackPosition: video?.trackPosition,
+                    trackTitle: video?.title,
+                    youtubeID: like.youtubeID,
+                    likedAt: like.likedAt
+                )
+            }
     }
 
     /// Takes a search hit the user confirmed, files it as a release and hearts it.
