@@ -201,8 +201,17 @@ final class AppEnvironment: ObservableObject {
     /// Marks whatever is playing, which is not always a track of the card on screen
     /// — and not always a card of the queue either, now that the transport sits
     /// under every tab.
+    ///
+    /// The same YouTube ID can legitimately appear under two release IDs (repress,
+    /// alternate pressing), so the lookup has to start at `displayedCard` — the
+    /// record the player was actually loaded from — before falling back to the
+    /// pools. Otherwise a like can land on the wrong release entirely.
     func likeCurrentlyPlaying() {
         guard let id = player.currentVideoID else { return }
+        if let card = displayedCard, card.videoIDs.contains(id) {
+            toggleLike(releaseID: card.releaseID, youtubeID: id)
+            return
+        }
         let pools = [cards, discoveryCards, inspected.map { [$0] } ?? []]
         guard
             let card = pools.lazy.compactMap({ pool in
@@ -371,7 +380,7 @@ final class AppEnvironment: ObservableObject {
             if inspected?.releaseID == card.releaseID {
                 inspected = refreshed
             }
-            reloadPlayerIfVideosArrived(was: card, now: refreshed)
+            reloadPlayerIfVideosArrived(now: refreshed)
         }
     }
 
@@ -379,8 +388,13 @@ final class AppEnvironment: ObservableObject {
     /// it carries no videos and the player was handed an empty playlist. Once the
     /// hydration brings them in, the player has to be handed the record again —
     /// otherwise the track rows are on screen and every one of them plays nothing.
-    private func reloadPlayerIfVideosArrived(was old: QueueCard, now refreshed: QueueCard) {
-        guard old.videoIDs.isEmpty, !refreshed.videoIDs.isEmpty else { return }
+    ///
+    /// Keyed off the player's own state rather than the card's before/after videos:
+    /// prefetch and the current-card hydration can race on the same release, and
+    /// whichever one loses the race would otherwise see a card that already has
+    /// videos and wrongly skip loading the player.
+    private func reloadPlayerIfVideosArrived(now refreshed: QueueCard) {
+        guard !player.hasLoadedVideo, !refreshed.videoIDs.isEmpty else { return }
         guard displayedCard?.releaseID == refreshed.releaseID else { return }
         loadIntoPlayer(refreshed)
     }
@@ -526,9 +540,8 @@ final class AppEnvironment: ObservableObject {
             let index = cards.firstIndex(where: { $0.releaseID == releaseID }),
             let refreshed = try? service.refreshedCard(cards[index])
         else { return }
-        let previous = cards[index]
         cards[index] = refreshed
-        reloadPlayerIfVideosArrived(was: previous, now: refreshed)
+        reloadPlayerIfVideosArrived(now: refreshed)
     }
 
     private func bootstrapIfEmpty(_ database: AppDatabase) async throws {

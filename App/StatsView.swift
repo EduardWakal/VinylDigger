@@ -78,7 +78,6 @@ struct StatsView: View {
                 Label("Dig-Session (\(openTracks))", systemImage: "arrow.up.doc")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(openTracks == 0)
             .help("Die seit dem letzten Export markierten Tracks als eigene Notiz in den Vault")
 
             Button {

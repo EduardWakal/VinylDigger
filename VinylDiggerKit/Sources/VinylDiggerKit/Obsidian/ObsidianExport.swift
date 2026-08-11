@@ -78,7 +78,7 @@ public enum ObsidianRenderer {
                 + "nachdem sie gekauft ist. Getrennt von der digitalen [[Musiksammlung]].",
             "",
             "Stand: \(format(generatedAt)) · \(wanted.count) Platten · "
-                + "\(likes.count) markierte Tracks in [[Vinyl - Gesuchte Tracks]].",
+                + "\(likes.count) markierte Tracks.",
             ""
         ]
 
