@@ -31,6 +31,7 @@ struct SettingsView: View {
                         Button("Entfernen", role: .destructive) {
                             styles.removeAll { $0 == style }
                             DiscoveryStyles.save(styles)
+                            styles = DiscoveryStyles.load()
                         }
                         .buttonStyle(.borderless)
                     }
@@ -94,10 +95,9 @@ struct SettingsView: View {
     }
 
     private func addStyle() {
-        let trimmed = newStyle.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, !styles.contains(trimmed) else { return }
-        styles.append(trimmed)
-        DiscoveryStyles.save(styles)
+        guard let cleaned = DiscoveryStyles.clean(newStyle), !styles.contains(cleaned) else { return }
+        DiscoveryStyles.save(styles + [cleaned])
+        styles = DiscoveryStyles.load()
         newStyle = ""
     }
 }

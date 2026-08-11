@@ -15,13 +15,17 @@ enum DiscoveryStyles {
         return stored
     }
 
+    /// The axis key joins style, window and page with a pipe, so a style carrying
+    /// one would garble the line shown on the card. Returns nil for anything that
+    /// is empty once cleaned.
+    static func clean(_ style: String) -> String? {
+        let cleaned = style
+            .replacingOccurrences(of: "|", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
     static func save(_ styles: [String]) {
-        let cleaned = styles
-            // The axis key joins style, window and page with a pipe, so a style
-            // carrying one would garble the line shown on the card.
-            .map { $0.replacingOccurrences(of: "|", with: " ") }
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        UserDefaults.standard.set(cleaned, forKey: key)
+        UserDefaults.standard.set(styles.compactMap(clean), forKey: key)
     }
 }
