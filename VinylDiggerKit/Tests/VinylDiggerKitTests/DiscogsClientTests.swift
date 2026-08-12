@@ -189,4 +189,93 @@ final class DiscogsClientTests: XCTestCase {
 
         XCTAssertEqual(ids, [1, 2, 3])
     }
+
+    func testSearchByStyleDecodesHits() async throws {
+        let json = """
+        {"results": [
+          {"id": 2831, "master_id": 41133, "title": "Inland Knights - Fresh Connections",
+           "year": "1999", "label": ["20:20 Vision"], "catno": "VIS035",
+           "style": ["House", "Deep House"],
+           "community": {"have": 517, "want": 582}}
+        ]}
+        """
+        let client = makeClient(StubTransport(replies: [.init(body: Data(json.utf8))]))
+
+        let hits = try await client.searchByStyle(
+            style: "Deep House", yearFrom: nil, yearTo: nil, page: 1
+        )
+
+        XCTAssertEqual(hits.count, 1)
+        XCTAssertEqual(hits[0].id, 2831)
+        XCTAssertEqual(hits[0].masterID, 41133)
+        XCTAssertEqual(hits[0].artistName, "Inland Knights")
+        XCTAssertEqual(hits[0].recordTitle, "Fresh Connections")
+        XCTAssertEqual(hits[0].year, 1999)
+        XCTAssertEqual(hits[0].label, "20:20 Vision")
+        XCTAssertEqual(hits[0].have, 517)
+        XCTAssertEqual(hits[0].want, 582)
+    }
+
+    func testSearchByStyleTreatsZeroMasterAsAbsent() async throws {
+        let json = """
+        {"results": [{"id": 7, "master_id": 0, "title": "A - B", "community": {"have": 1, "want": 2}}]}
+        """
+        let client = makeClient(StubTransport(replies: [.init(body: Data(json.utf8))]))
+
+        let hits = try await client.searchByStyle(
+            style: "Minimal", yearFrom: nil, yearTo: nil, page: 1
+        )
+
+        XCTAssertNil(hits[0].masterID)
+    }
+
+    func testSearchByStyleBuildsQuery() async throws {
+        let transport = StubTransport(replies: [.init(body: Data(#"{"results": []}"#.utf8))])
+        let client = makeClient(transport)
+
+        _ = try await client.searchByStyle(
+            style: "Tech House", yearFrom: 1990, yearTo: 1999, page: 3
+        )
+
+        let url = transport.sentRequests[0].url!
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!
+        func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
+
+        XCTAssertEqual(url.path, "/database/search")
+        XCTAssertEqual(value("type"), "release")
+        XCTAssertEqual(value("format"), "Vinyl")
+        XCTAssertEqual(value("genre"), "Electronic")
+        XCTAssertEqual(value("style"), "Tech House")
+        XCTAssertEqual(value("sort"), "want")
+        XCTAssertEqual(value("sort_order"), "desc")
+        XCTAssertEqual(value("per_page"), "50")
+        XCTAssertEqual(value("page"), "3")
+        XCTAssertEqual(value("year"), "1990-1999")
+    }
+
+    func testSearchByStyleOmitsYearForAllTime() async throws {
+        let transport = StubTransport(replies: [.init(body: Data(#"{"results": []}"#.utf8))])
+        let client = makeClient(transport)
+
+        _ = try await client.searchByStyle(
+            style: "House", yearFrom: nil, yearTo: nil, page: 1
+        )
+
+        let items = URLComponents(
+            url: transport.sentRequests[0].url!, resolvingAgainstBaseURL: false
+        )!.queryItems!
+        XCTAssertNil(items.first { $0.name == "year" })
+    }
+
+    func testSearchByStyleDecodesLiveFixture() async throws {
+        let body = try loadFixture("search_tech_house")
+        let client = makeClient(StubTransport(replies: [.init(body: body)]))
+
+        let hits = try await client.searchByStyle(
+            style: "Tech House", yearFrom: nil, yearTo: nil, page: 1
+        )
+
+        XCTAssertFalse(hits.isEmpty)
+        XCTAssertFalse(hits[0].artistName.isEmpty)
+    }
 }

@@ -85,3 +85,62 @@ final class BootstrapImporterTests: XCTestCase {
         XCTAssertEqual(releaseCount, summary.releases)
     }
 }
+
+final class SeedRestoreTests: XCTestCase {
+    private let profile = Data(#"""
+    {"profile": {
+        "Carl Finlow": {"id": 13320, "discogs_name": "Carl A. Finlow"},
+        "Kelvin K": {"id": 999, "discogs_name": "Kelvin K"}
+    }}
+    """#.utf8)
+
+    func testRestoresSeedWeightThatExpansionWipedOut() throws {
+        let db = try AppDatabase.inMemory()
+        try db.write { database in
+            // What expansion left behind: the seed is still there, weight gone.
+            var wiped = ArtistRecord(id: 13320, name: "Carl A. Finlow", weight: 0, refreshedAt: nil)
+            try wiped.save(database)
+        }
+
+        let restored = try BootstrapImporter(database: db).restoreSeedWeights(profile: profile)
+
+        XCTAssertEqual(restored, 2)
+        XCTAssertEqual(try db.read { try ArtistRecord.fetchOne($0, key: 13320) }?.weight, 1.0)
+    }
+
+    func testCreatesSeedArtistThatIsMissingEntirely() throws {
+        let db = try AppDatabase.inMemory()
+
+        _ = try BootstrapImporter(database: db).restoreSeedWeights(profile: profile)
+
+        let seed = try db.read { try ArtistRecord.fetchOne($0, key: 999) }
+        XCTAssertEqual(seed?.name, "Kelvin K")
+        XCTAssertEqual(seed?.weight, 1.0)
+    }
+
+    func testLeavesAManualWeightAlone() throws {
+        let db = try AppDatabase.inMemory()
+        try db.write { database in
+            var seed = ArtistRecord(
+                id: 13320, name: "Carl A. Finlow", weight: 0, refreshedAt: nil, manualWeight: 0.2
+            )
+            try seed.save(database)
+        }
+
+        _ = try BootstrapImporter(database: db).restoreSeedWeights(profile: profile)
+
+        let stored = try db.read { try ArtistRecord.fetchOne($0, key: 13320) }
+        XCTAssertEqual(stored?.manualWeight, 0.2, "a hand-set weight stays the user's call")
+        XCTAssertEqual(stored?.weight, 1.0)
+    }
+
+    func testIsIdempotent() throws {
+        let db = try AppDatabase.inMemory()
+        let importer = BootstrapImporter(database: db)
+
+        _ = try importer.restoreSeedWeights(profile: profile)
+        _ = try importer.restoreSeedWeights(profile: profile)
+
+        XCTAssertEqual(try db.read { try ArtistRecord.fetchCount($0) }, 2)
+    }
+}

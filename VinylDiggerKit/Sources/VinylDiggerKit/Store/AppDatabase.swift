@@ -117,6 +117,120 @@ public final class AppDatabase {
             }
         }
 
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "rating", .double).notNull().defaults(to: 0)
+                t.add(column: "ratingCount", .integer).notNull().defaults(to: 0)
+            }
+        }
+
+        migrator.registerMigration("v4") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "coverURL", .text)
+            }
+            try db.alter(table: "video") { t in
+                t.add(column: "duration", .integer)
+                t.add(column: "trackPosition", .text)
+            }
+        }
+
+        // Releases hydrated before v4 carry a rating but no cover, video duration or
+        // track position. hydrateRelease skips anything with a rating, so without this
+        // reset those rows would never pick the new fields up.
+        migrator.registerMigration("v5") { db in
+            try db.execute(sql: "UPDATE release SET rating = 0, ratingCount = 0")
+        }
+
+        migrator.registerMigration("v6") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "detailFetched", .boolean).notNull().defaults(to: false)
+            }
+            // Anything already carrying a cover went through the detail fetch.
+            try db.execute(sql: "UPDATE release SET detailFetched = 1 WHERE coverURL IS NOT NULL")
+        }
+
+        migrator.registerMigration("v7") { db in
+            try db.create(table: "track_like") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("releaseID", .integer).notNull().indexed()
+                t.column("youtubeID", .text).notNull()
+                t.column("likedAt", .datetime).notNull()
+                t.uniqueKey(["releaseID", "youtubeID"])
+            }
+        }
+
+        migrator.registerMigration("v8") { db in
+            try db.alter(table: "artist") { t in
+                t.add(column: "manualWeight", .double)
+            }
+            try db.alter(table: "label") { t in
+                t.add(column: "manualWeight", .double)
+            }
+        }
+
+        // hydrateRelease used to only UPDATE video rows, never insert them, so every
+        // release the graph turned up stayed without a preview. Clearing the marker
+        // lets those releases be fetched once more, this time keeping their videos.
+        migrator.registerMigration("v9") { db in
+            try db.execute(sql: """
+                UPDATE release SET detailFetched = 0
+                WHERE detailFetched = 1
+                  AND NOT EXISTS (SELECT 1 FROM video WHERE video.releaseID = release.id)
+                """)
+        }
+
+        migrator.registerMigration("v10") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "tracklist", .blob).notNull().defaults(to: Data("[]".utf8))
+            }
+            // Anything fetched before this column existed has to be read again to
+            // pick its tracklist up.
+            try db.execute(sql: "UPDATE release SET detailFetched = 0")
+        }
+
+        migrator.registerMigration("v11") { db in
+            try db.create(table: "discovery_item") { t in
+                t.primaryKey("releaseID", .integer)
+                t.column("masterID", .integer)
+                t.column("title", .text).notNull()
+                t.column("artistName", .text).notNull()
+                t.column("styles", .blob).notNull()
+                t.column("have", .integer).notNull().defaults(to: 0)
+                t.column("want", .integer).notNull().defaults(to: 0)
+                t.column("year", .integer)
+                t.column("labelName", .text)
+                t.column("catno", .text)
+                t.column("axisKey", .text).notNull()
+                t.column("score", .double).notNull().defaults(to: 0)
+                t.column("rank", .integer).notNull().defaults(to: 0)
+                t.column("fetchedAt", .datetime).notNull()
+            }
+
+            try db.create(table: "discovery_cursor") { t in
+                t.primaryKey("id", .integer)
+                t.column("styleIndex", .integer).notNull().defaults(to: 0)
+                t.column("windowIndex", .integer).notNull().defaults(to: 0)
+                t.column("page", .integer).notNull().defaults(to: 1)
+            }
+        }
+
+        // Marks a release filed by DiscoveryService as a stub. Such a release can
+        // resolve to a real artist and carry a real want count, so without this
+        // marker it would score above zero and leak into the ordinary queue before
+        // the user ever decided on it.
+        migrator.registerMigration("v12") { db in
+            try db.alter(table: "release") { t in
+                t.add(column: "discovered", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("v13") { db in
+            try db.create(table: "export_cursor") { t in
+                t.primaryKey("id", .integer)
+                t.column("lastExportedAt", .datetime).notNull()
+            }
+        }
+
         return migrator
     }
 }

@@ -8,13 +8,22 @@ public struct ArtistRecord: Codable, FetchableRecord, MutablePersistableRecord, 
     public var name: String
     public var weight: Double
     public var refreshedAt: Date?
+    /// Set by hand to override what the graph computed. nil hands control back.
+    public var manualWeight: Double?
 
-    public init(id: Int, name: String, weight: Double, refreshedAt: Date?) {
+    public init(
+        id: Int, name: String, weight: Double, refreshedAt: Date?,
+        manualWeight: Double? = nil
+    ) {
         self.id = id
         self.name = name
         self.weight = weight
         self.refreshedAt = refreshedAt
+        self.manualWeight = manualWeight
     }
+
+    /// What the queue should score against.
+    public var effectiveWeight: Double { manualWeight ?? weight }
 }
 
 public struct LabelRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
@@ -24,13 +33,22 @@ public struct LabelRecord: Codable, FetchableRecord, MutablePersistableRecord, E
     public var name: String
     public var weight: Double
     public var refreshedAt: Date?
+    /// Set by hand to override what the graph computed. nil hands control back.
+    public var manualWeight: Double?
 
-    public init(id: Int, name: String, weight: Double, refreshedAt: Date?) {
+    public init(
+        id: Int, name: String, weight: Double, refreshedAt: Date?,
+        manualWeight: Double? = nil
+    ) {
         self.id = id
         self.name = name
         self.weight = weight
         self.refreshedAt = refreshedAt
+        self.manualWeight = manualWeight
     }
+
+    /// What the queue should score against.
+    public var effectiveWeight: Double { manualWeight ?? weight }
 }
 
 public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
@@ -49,11 +67,29 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
     public var hydrated: Bool
     /// True when the release is already in the user's Discogs collection.
     public var owned: Bool
+    /// Discogs community rating, 0–5. Zero also means "not fetched yet"; use
+    /// `ratingCount` to tell an unrated release from an unknown one.
+    public var rating: Double
+    public var ratingCount: Int
+    /// Sleeve front from Discogs; nil until the release has been hydrated.
+    public var coverURL: String?
+    /// Every track on the sleeve, not only the ones with a video.
+    public var tracklist: [ReleaseTrack]
+    /// True once `/releases/{id}` has been read for this release. Rating alone is
+    /// no marker — plenty of releases carry none, and those must not be refetched
+    /// on every visit.
+    public var detailFetched: Bool
+    /// True for a stub `DiscoveryService.store` filed from a style-chart hit.
+    /// Kept out of the ordinary queue until the user has decided on it — see
+    /// `QueueService.rebuildQueue`.
+    public var discovered: Bool
 
     public init(
         id: Int, title: String, artistName: String, year: Int?, catno: String?,
         labelID: Int?, styles: [String], want: Int, have: Int, hydrated: Bool,
-        owned: Bool = false
+        owned: Bool = false, rating: Double = 0, ratingCount: Int = 0,
+        coverURL: String? = nil, detailFetched: Bool = false,
+        tracklist: [ReleaseTrack] = [], discovered: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -66,6 +102,12 @@ public struct ReleaseRecord: Codable, FetchableRecord, MutablePersistableRecord,
         self.have = have
         self.hydrated = hydrated
         self.owned = owned
+        self.rating = rating
+        self.ratingCount = ratingCount
+        self.coverURL = coverURL
+        self.detailFetched = detailFetched
+        self.tracklist = tracklist
+        self.discovered = discovered
     }
 }
 
@@ -78,14 +120,58 @@ public struct VideoRecord: Codable, FetchableRecord, MutablePersistableRecord, E
     public var title: String?
     public var position: Int
     public var unavailable: Bool
+    /// Length in seconds from Discogs; the tracklist rarely carries one.
+    public var duration: Int?
+    /// Discogs sleeve position such as "A1" — unrelated to `position`, which is
+    /// this video's order inside the release.
+    public var trackPosition: String?
 
-    public init(id: Int64?, releaseID: Int, youtubeID: String, title: String?, position: Int, unavailable: Bool) {
+    public init(
+        id: Int64?, releaseID: Int, youtubeID: String, title: String?,
+        position: Int, unavailable: Bool, duration: Int? = nil,
+        trackPosition: String? = nil
+    ) {
         self.id = id
         self.releaseID = releaseID
         self.youtubeID = youtubeID
         self.title = title
         self.position = position
         self.unavailable = unavailable
+        self.duration = duration
+        self.trackPosition = trackPosition
+    }
+
+    public mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+/// One line of a record's tracklist as Discogs prints it on the sleeve.
+public struct ReleaseTrack: Codable, Equatable, Sendable {
+    public let position: String?
+    public let title: String
+
+    public init(position: String?, title: String) {
+        self.position = position
+        self.title = title
+    }
+}
+
+/// A single track marked as good. Discogs has no track-level list, so this layer
+/// is ours alone — a ♥ on the card still writes the whole release to the wantlist.
+public struct TrackLikeRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "track_like"
+
+    public var id: Int64?
+    public var releaseID: Int
+    public var youtubeID: String
+    public var likedAt: Date
+
+    public init(id: Int64?, releaseID: Int, youtubeID: String, likedAt: Date) {
+        self.id = id
+        self.releaseID = releaseID
+        self.youtubeID = youtubeID
+        self.likedAt = likedAt
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
@@ -174,5 +260,82 @@ public struct OutboxRecord: Codable, FetchableRecord, MutablePersistableRecord, 
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
         id = inserted.rowID
+    }
+}
+
+/// One record from the style charts, waiting to be auditioned. The table is
+/// cleared and refilled on every refresh, like `queue_item`.
+public struct DiscoveryItemRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "discovery_item"
+
+    public var releaseID: Int
+    /// Nil when Discogs files the release under no master.
+    public var masterID: Int?
+    public var title: String
+    public var artistName: String
+    public var styles: [String]
+    public var have: Int
+    public var want: Int
+    public var year: Int?
+    public var labelName: String?
+    public var catno: String?
+    /// Which style, window and page turned this up — shown on the card.
+    public var axisKey: String
+    public var score: Double
+    public var rank: Int
+    public var fetchedAt: Date
+
+    public init(
+        releaseID: Int, masterID: Int?, title: String, artistName: String,
+        styles: [String], have: Int, want: Int, year: Int?, labelName: String?,
+        catno: String?, axisKey: String, score: Double, rank: Int, fetchedAt: Date
+    ) {
+        self.releaseID = releaseID
+        self.masterID = masterID
+        self.title = title
+        self.artistName = artistName
+        self.styles = styles
+        self.have = have
+        self.want = want
+        self.year = year
+        self.labelName = labelName
+        self.catno = catno
+        self.axisKey = axisKey
+        self.score = score
+        self.rank = rank
+        self.fetchedAt = fetchedAt
+    }
+}
+
+/// Where the rotation stopped last time. Exactly one row.
+public struct DiscoveryCursorRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "discovery_cursor"
+    public static let singletonID = 1
+
+    public var id: Int
+    public var styleIndex: Int
+    public var windowIndex: Int
+    public var page: Int
+
+    public init(id: Int = DiscoveryCursorRecord.singletonID, styleIndex: Int, windowIndex: Int, page: Int) {
+        self.id = id
+        self.styleIndex = styleIndex
+        self.windowIndex = windowIndex
+        self.page = page
+    }
+}
+
+/// When the last dig session was written to the vault. A session is everything
+/// marked since — there is no session object, the export itself is the cut.
+public struct ExportCursorRecord: Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    public static let databaseTableName = "export_cursor"
+    public static let singletonID = 1
+
+    public var id: Int
+    public var lastExportedAt: Date
+
+    public init(id: Int = ExportCursorRecord.singletonID, lastExportedAt: Date) {
+        self.id = id
+        self.lastExportedAt = lastExportedAt
     }
 }

@@ -6,8 +6,9 @@ struct SettingsView: View {
 
     @State private var token = ""
     @State private var username = ""
-    @State private var windowLength: Double = 60
     @State private var message = ""
+    @State private var styles: [String] = []
+    @State private var newStyle = ""
 
     private let secrets = KeychainSecretStore()
 
@@ -22,15 +23,25 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Wiedergabe") {
-                Slider(value: $windowLength, in: 30...120, step: 15) {
-                    Text("Hörfenster")
-                } minimumValueLabel: {
-                    Text("30 s")
-                } maximumValueLabel: {
-                    Text("120 s")
+            Section("Discovery-Styles") {
+                ForEach(styles, id: \.self) { style in
+                    HStack {
+                        Text(style)
+                        Spacer()
+                        Button("Entfernen", role: .destructive) {
+                            styles.removeAll { $0 == style }
+                            DiscoveryStyles.save(styles)
+                            styles = DiscoveryStyles.load()
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
-                Text("\(Int(windowLength)) Sekunden pro Karte")
+                HStack {
+                    TextField("Style hinzufügen", text: $newStyle)
+                    Button("Hinzufügen") { addStyle() }
+                        .disabled(newStyle.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                Text("Genau so schreiben, wie Discogs den Style führt — etwa „Deep House\".")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -56,7 +67,7 @@ struct SettingsView: View {
     private func load() {
         token = (try? secrets.read(.discogsToken)).flatMap { $0 } ?? ""
         username = (try? secrets.read(.discogsUsername)).flatMap { $0 } ?? ""
-        windowLength = environment.player.windowLength
+        styles = DiscoveryStyles.load()
     }
 
     private func save() {
@@ -71,7 +82,6 @@ struct SettingsView: View {
             } else {
                 try secrets.write(username, for: .discogsUsername)
             }
-            environment.player.windowLength = windowLength
             message = "gesichert"
         } catch {
             message = "Fehler: \(error)"
@@ -82,5 +92,12 @@ struct SettingsView: View {
         try? secrets.delete(.discogsToken)
         token = ""
         message = "Token gelöscht"
+    }
+
+    private func addStyle() {
+        guard let cleaned = DiscoveryStyles.clean(newStyle), !styles.contains(cleaned) else { return }
+        DiscoveryStyles.save(styles + [cleaned])
+        styles = DiscoveryStyles.load()
+        newStyle = ""
     }
 }

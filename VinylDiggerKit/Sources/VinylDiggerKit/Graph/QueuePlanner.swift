@@ -1,47 +1,66 @@
 import Foundation
 
-/// Orders scored releases for the audition queue, keeping any single label from
-/// dominating a long stretch of the run.
+/// Orders scored releases for the audition queue.
+///
+/// Ranking on score alone collapses the run: the graph favours a few veins, the
+/// user hearts what shows up, those veins gain weight, and the next queue is even
+/// narrower. So each pick is penalised by how often its artist and label already
+/// appeared — a well-worn diversity re-ranking, the same shape as maximal marginal
+/// relevance, only with a count instead of a similarity measure.
+///
+/// Nothing is discarded. A repeated artist drops behind fresher material and comes
+/// back once the alternatives are used up.
 public enum QueuePlanner {
-    public static let maxConsecutiveSameLabel = 3
+    /// How hard a repeat is punished. At 1.0 the second release by an artist counts
+    /// half, the third a third, and so on.
+    public static let repeatPenalty = 1.0
+    /// The label penalty is gentler — a label is a much wider net than an artist.
+    public static let labelPenalty = 0.7
 
     public static func plan(_ scored: [ScoredRelease], limit: Int) -> [ScoredRelease] {
         var remaining = scored.filter { $0.score > 0 }
         var output: [ScoredRelease] = []
-        var deferred: [ScoredRelease] = []
+        var artistCounts: [Int: Int] = [:]
+        var labelCounts: [Int: Int] = [:]
 
-        while output.count < limit, !remaining.isEmpty || !deferred.isEmpty {
-            if remaining.isEmpty {
-                // Nothing left but items we pushed aside — take them in order.
-                remaining = deferred
-                deferred = []
-            }
+        while output.count < limit, !remaining.isEmpty {
+            var bestIndex = 0
+            var bestValue = -Double.infinity
 
-            guard !remaining.isEmpty else { break }
-            let next = remaining.removeFirst()
-
-            if let labelID = next.labelID, runLength(of: labelID, in: output) >= maxConsecutiveSameLabel {
-                // Look for any candidate from another label to break the run.
-                if let index = remaining.firstIndex(where: { $0.labelID != labelID }) {
-                    let replacement = remaining.remove(at: index)
-                    deferred.append(next)
-                    output.append(replacement)
-                    continue
+            for (index, candidate) in remaining.enumerated() {
+                let value = adjusted(
+                    candidate, artistCounts: artistCounts, labelCounts: labelCounts
+                )
+                if value > bestValue {
+                    bestValue = value
+                    bestIndex = index
                 }
             }
 
-            output.append(next)
+            let picked = remaining.remove(at: bestIndex)
+            for artistID in picked.artistIDs {
+                artistCounts[artistID, default: 0] += 1
+            }
+            if let labelID = picked.labelID {
+                labelCounts[labelID, default: 0] += 1
+            }
+            output.append(picked)
         }
 
         return output
     }
 
-    private static func runLength(of labelID: Int, in output: [ScoredRelease]) -> Int {
-        var count = 0
-        for item in output.reversed() {
-            guard item.labelID == labelID else { break }
-            count += 1
-        }
-        return count
+    private static func adjusted(
+        _ candidate: ScoredRelease, artistCounts: [Int: Int], labelCounts: [Int: Int]
+    ) -> Double {
+        let artistSeen = candidate.artistIDs
+            .map { artistCounts[$0] ?? 0 }
+            .max() ?? 0
+        let labelSeen = candidate.labelID.map { labelCounts[$0] ?? 0 } ?? 0
+
+        let artistFactor = 1 / (1 + repeatPenalty * Double(artistSeen))
+        let labelFactor = 1 / (1 + labelPenalty * Double(labelSeen))
+
+        return candidate.score * artistFactor * labelFactor
     }
 }

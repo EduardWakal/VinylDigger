@@ -58,6 +58,77 @@ public actor DiscogsClient {
         return envelope.results.map { DiscogsNameRef(id: $0.id, name: $0.title) }
     }
 
+    /// Looks a hand-typed dig line up in the Discogs catalogue. Vinyl only — the
+    /// list came off records, and format noise costs review time.
+    public func searchReleases(artist: String?, title: String) async throws -> [DiscogsReleaseSummary] {
+        struct Hit: Codable {
+            let id: Int
+            let title: String
+            let year: String?
+            let label: [String]?
+            let catno: String?
+        }
+        struct Envelope: Codable { let results: [Hit] }
+
+        var query = [
+            URLQueryItem(name: "release_title", value: title),
+            URLQueryItem(name: "type", value: "release"),
+            URLQueryItem(name: "format", value: "Vinyl"),
+            URLQueryItem(name: "per_page", value: "5")
+        ]
+        if let artist, !artist.isEmpty {
+            query.append(URLQueryItem(name: "artist", value: artist))
+        }
+
+        let envelope: Envelope = try await fetch(path: "/database/search", query: query)
+        return envelope.results.map { hit in
+            DiscogsReleaseSummary(
+                id: hit.id,
+                // Search returns "Artist - Title" in one string; keep it whole rather
+                // than splitting it a second time and risking a wrong artist.
+                title: hit.title,
+                year: hit.year.flatMap(Int.init),
+                label: hit.label?.first,
+                catno: hit.catno,
+                artist: nil,
+                role: nil
+            )
+        }
+    }
+
+    /// The most sought-after vinyl of one style.
+    ///
+    /// Sorted by `want`, not `have`: the most *collected* records of a style are
+    /// the ones that sold in pop quantities and happen to carry the tag — Charli
+    /// XCX and Lady Gaga head the tech house charts by that measure. Collector
+    /// demand tracks the genre's own canon far better.
+    ///
+    /// `type=release` rather than `type=master`: a master hit carries no main
+    /// release, so each one would cost a second call. A release hit is usable at
+    /// once, and the repressings it drags in are deduplicated over `master_id`.
+    public func searchByStyle(
+        style: String, yearFrom: Int?, yearTo: Int?, page: Int
+    ) async throws -> [DiscogsSearchHit] {
+        struct Envelope: Decodable { let results: [DiscogsSearchHit] }
+
+        var query = [
+            URLQueryItem(name: "type", value: "release"),
+            URLQueryItem(name: "format", value: "Vinyl"),
+            URLQueryItem(name: "genre", value: "Electronic"),
+            URLQueryItem(name: "style", value: style),
+            URLQueryItem(name: "sort", value: "want"),
+            URLQueryItem(name: "sort_order", value: "desc"),
+            URLQueryItem(name: "per_page", value: "50"),
+            URLQueryItem(name: "page", value: String(page))
+        ]
+        if let yearFrom, let yearTo {
+            query.append(URLQueryItem(name: "year", value: "\(yearFrom)-\(yearTo)"))
+        }
+
+        let envelope: Envelope = try await fetch(path: "/database/search", query: query)
+        return envelope.results
+    }
+
     public func collectionReleaseIDs(username: String) async throws -> [Int] {
         try await allReleaseIDs(path: "/users/\(username)/collection/folders/0/releases")
     }
@@ -66,10 +137,34 @@ public actor DiscogsClient {
         try await allReleaseIDs(path: "/users/\(username)/wants")
     }
 
+    /// The wantlist with enough detail to file a release without a second call —
+    /// `/wants` already carries artist, title, label and catalogue number.
+    public func wantlist(username: String) async throws -> [DiscogsWant] {
+        var wants: [DiscogsWant] = []
+        var page = 1
+        while true {
+            let result: DiscogsPage<DiscogsWant> = try await fetchPage(
+                path: "/users/\(username)/wants", key: .wants, page: page
+            )
+            wants.append(contentsOf: result.items)
+            if page >= result.pages { break }
+            page += 1
+        }
+        return wants
+    }
+
     public func addToWantlist(username: String, releaseID: Int) async throws {
         _ = try await perform(
             path: "/users/\(username)/wants/\(releaseID)",
             method: "PUT",
+            query: []
+        )
+    }
+
+    public func removeFromWantlist(username: String, releaseID: Int) async throws {
+        _ = try await perform(
+            path: "/users/\(username)/wants/\(releaseID)",
+            method: "DELETE",
             query: []
         )
     }

@@ -1,23 +1,46 @@
 import Combine
 import SwiftUI
 import WebKit
+import VinylDiggerKit
 
 /// Drives a hidden WKWebView running the YouTube IFrame Player API.
 ///
-/// SwiftUI owns the transport; the web view is only an audio engine. Playback
-/// pauses at the end of the listening window instead of advancing on its own,
-/// so no card is ever passed without a decision.
+/// Position and duration are pushed out of the page — the controller never polls
+/// and never counts time itself. A release plays through its videos in order and
+/// stops at the end, leaving the card waiting for a decision.
 @MainActor
 final class PlayerController: NSObject, ObservableObject {
     @Published private(set) var isPlaying = false
-    @Published private(set) var elapsed: TimeInterval = 0
+    @Published private(set) var position: TimeInterval = 0
+    @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var currentVideoID: String?
+    @Published private(set) var currentIndex = 0
     @Published private(set) var videoUnavailable = false
-    @Published var windowLength: TimeInterval = 60
+    /// What the transport shows. Kept here rather than read off the card, so the
+    /// bar keeps naming the right track even while another card is on screen.
+    @Published private(set) var contextLabel: String?
+    @Published private(set) var trackLabels: [String] = []
 
-    private var videoIDs: [String] = []
-    private var index = 0
-    private var ticker: AnyCancellable?
+    var currentTrackLabel: String? {
+        trackLabels.indices.contains(currentIndex) ? trackLabels[currentIndex] : nil
+    }
+
+    var hasLoadedVideo: Bool { currentVideoID != nil }
+
+    /// While the user drags the slider, incoming positions are dropped so the
+    /// knob does not fight the updates still arriving from the page.
+    var isScrubbing = false
+
+    /// Whether the user wants sound at all. Pause means pause — a new record is
+    /// cued but not started until play is pressed again.
+    private var wantsPlayback = true
+
+    private var cursor = PlaylistCursor(videoIDs: [])
+
+    /// The page needs a real origin of its own. Hosting it on `https://www.youtube.com`
+    /// makes every embed fail with YouTube error 152 — the API refuses to serve an
+    /// embed whose embedder claims to be YouTube itself.
+    private static let embedOrigin = "https://vinyldigger.local"
 
     let webView: WKWebView = {
         let configuration = WKWebViewConfiguration()
@@ -31,93 +54,117 @@ final class PlayerController: NSObject, ObservableObject {
     override init() {
         super.init()
         webView.navigationDelegate = self
-        webView.configuration.userContentController.add(self, name: "playerError")
-        webView.loadHTMLString(Self.playerHTML, baseURL: URL(string: "https://www.youtube.com"))
+        webView.configuration.userContentController.add(self, name: "player")
+        webView.loadHTMLString(Self.playerHTML, baseURL: URL(string: Self.embedOrigin))
     }
 
-    func load(videoIDs: [String]) {
-        self.videoIDs = videoIDs
-        index = 0
+    func load(videoIDs: [String], labels: [String] = [], context: String? = nil) {
+        cursor = PlaylistCursor(videoIDs: videoIDs)
+        trackLabels = labels
+        contextLabel = videoIDs.isEmpty ? nil : context
         videoUnavailable = videoIDs.isEmpty
-        elapsed = 0
-        stopTicker()
+        position = 0
+        duration = 0
+        currentIndex = 0
         playCurrent()
     }
 
     func togglePlayPause() {
-        isPlaying ? pause() : resume()
+        wantsPlayback = !isPlaying
+        isPlaying ? evaluate("player.pauseVideo()") : evaluate("player.playVideo()")
     }
 
-    func extendWindow() {
-        windowLength += 60
-        resume()
+    func seek(to target: TimeInterval) {
+        guard currentVideoID != nil else { return }
+        let clamped = min(max(0, target), duration > 0 ? duration : target)
+        position = clamped
+        evaluate("player.seekTo(\(clamped), true)")
+    }
+
+    func seek(by delta: TimeInterval) {
+        seek(to: position + delta)
+    }
+
+    func restart() {
+        seek(to: 0)
+    }
+
+    /// Picking a track by hand is an explicit request for sound.
+    func play(index: Int) {
+        guard let id = cursor.select(index) else { return }
+        wantsPlayback = true
+        startVideo(id)
     }
 
     func nextVideo() {
-        guard index + 1 < videoIDs.count else { return }
-        index += 1
-        elapsed = 0
-        playCurrent()
-    }
-
-    /// Returns false when no playable video is left for this release.
-    @discardableResult
-    func advanceAfterFailure() -> Bool {
-        guard index + 1 < videoIDs.count else { return false }
-        index += 1
-        elapsed = 0
-        playCurrent()
-        return true
+        guard let id = cursor.advance() else { return }
+        startVideo(id)
     }
 
     // MARK: - Private
 
     private func playCurrent() {
-        guard index < videoIDs.count else {
-            videoUnavailable = true
-            currentVideoID = nil
+        guard let id = cursor.current else {
+            // Nothing to play here — silence the previous record rather than
+            // leaving it running under a card it does not belong to.
+            stop()
             return
         }
-        let id = videoIDs[index]
-        currentVideoID = id
-        videoUnavailable = false
-        evaluate("loadVideo('\(id)')")
-        startTicker()
-        isPlaying = true
+        startVideo(id)
     }
 
-    private func resume() {
-        guard currentVideoID != nil else { return }
-        evaluate("player.playVideo()")
-        startTicker()
-        isPlaying = true
-    }
-
-    private func pause() {
-        evaluate("player.pauseVideo()")
-        stopTicker()
+    private func stop() {
+        videoUnavailable = true
+        currentVideoID = nil
         isPlaying = false
+        position = 0
+        duration = 0
+        evaluate("player.stopVideo()")
     }
 
-    private func startTicker() {
-        ticker = Timer.publish(every: 0.25, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.elapsed += 0.25
-                if self.elapsed >= self.windowLength {
-                    self.pause()
-                }
-            }
+    private func startVideo(_ id: String) {
+        currentVideoID = id
+        currentIndex = cursor.index
+        videoUnavailable = false
+        position = 0
+        duration = 0
+        // Cueing loads the video without starting it, so a paused player stays
+        // paused when the record changes.
+        evaluate("\(wantsPlayback ? "loadVideo" : "cueVideo")('\(id)')")
     }
 
-    private func stopTicker() {
-        ticker?.cancel()
-        ticker = nil
+    private func handleState(_ state: Int, time: TimeInterval, length: TimeInterval) {
+        if !isScrubbing { position = time }
+        if length > 0 { duration = length }
+        isPlaying = state == 1
+        // 0 is ENDED — move on to the next side of the record.
+        if state == 0 { advanceAfterEnd() }
+    }
+
+    private func advanceAfterEnd() {
+        guard let id = cursor.advance() else {
+            isPlaying = false
+            return
+        }
+        // Reaching the end of a track while playing means playback should carry on.
+        wantsPlayback = true
+        startVideo(id)
+    }
+
+    private func handleError() {
+        // A blocked or removed video is not an error to show — just move on.
+        guard let id = cursor.advance() else {
+            videoUnavailable = true
+            isPlaying = false
+            return
+        }
+        startVideo(id)
     }
 
     private func evaluate(_ script: String) {
-        webView.evaluateJavaScript(script) { _, error in
+        // The trailing `null` keeps WebKit from rejecting the undefined return
+        // value of every YT API call with WKErrorJavaScriptResultTypeIsUnsupported.
+        webView.evaluateJavaScript(script + ";null") { _, error in
             if let error {
                 NSLog("player script failed: \(error.localizedDescription)")
             }
@@ -125,31 +172,63 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     /// Loaded once; `loadVideo` is then called per release.
-    private static let playerHTML = """
-    <!doctype html>
-    <html><body style="margin:0;background:#000">
-    <div id="player"></div>
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <script>
-      let player;
-      let pending = null;
-      function onYouTubeIframeAPIReady() {
-        player = new YT.Player('player', {
-          height: '1', width: '1',
-          playerVars: { controls: 0, disablekb: 1, playsinline: 1 },
-          events: {
-            onReady: () => { if (pending) { player.loadVideoById(pending); pending = null; } },
-            onError: () => { window.webkit.messageHandlers.playerError.postMessage('error'); }
+    private static var playerHTML: String {
+        """
+        <!doctype html>
+        <html><body style="margin:0;background:#000">
+        <div id="player"></div>
+        <script src="https://www.youtube.com/iframe_api"></script>
+        <script>
+          let player;
+          let pending = null;
+          let timer = null;
+
+          function post(payload) {
+            window.webkit.messageHandlers.player.postMessage(JSON.stringify(payload));
           }
-        });
-      }
-      function loadVideo(id) {
-        if (player && player.loadVideoById) { player.loadVideoById(id); }
-        else { pending = id; }
-      }
-    </script>
-    </body></html>
-    """
+
+          function pushState() {
+            if (!player || !player.getPlayerState) { return; }
+            post({
+              kind: 'state',
+              state: player.getPlayerState(),
+              t: player.getCurrentTime() || 0,
+              d: player.getDuration() || 0
+            });
+          }
+
+          function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+              height: '1', width: '1',
+              playerVars: {
+                controls: 0, disablekb: 1, playsinline: 1,
+                enablejsapi: 1, origin: '\(embedOrigin)'
+              },
+              events: {
+                onReady: () => { if (pending) { player.loadVideoById(pending); pending = null; } },
+                onStateChange: () => {
+                  pushState();
+                  if (timer) { clearInterval(timer); timer = null; }
+                  if (player.getPlayerState() === 1) { timer = setInterval(pushState, 250); }
+                },
+                onError: (e) => { post({ kind: 'error', code: e.data }); }
+              }
+            });
+          }
+
+          function loadVideo(id) {
+            if (player && player.loadVideoById) { player.loadVideoById(id); }
+            else { pending = id; }
+          }
+
+          function cueVideo(id) {
+            if (player && player.cueVideoById) { player.cueVideoById(id); }
+            else { pending = id; }
+          }
+        </script>
+        </body></html>
+        """
+    }
 }
 
 extension PlayerController: WKNavigationDelegate {}
@@ -159,10 +238,25 @@ extension PlayerController: WKScriptMessageHandler {
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        guard
+            let raw = message.body as? String,
+            let data = raw.data(using: .utf8),
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let kind = payload["kind"] as? String
+        else { return }
+
         Task { @MainActor in
-            // A blocked or removed video is not an error to show — just move on.
-            if !self.advanceAfterFailure() {
-                self.videoUnavailable = true
+            switch kind {
+            case "state":
+                self.handleState(
+                    payload["state"] as? Int ?? -1,
+                    time: payload["t"] as? Double ?? 0,
+                    length: payload["d"] as? Double ?? 0
+                )
+            case "error":
+                self.handleError()
+            default:
+                break
             }
         }
     }

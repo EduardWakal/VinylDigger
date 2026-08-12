@@ -9,9 +9,11 @@ final class ScorerTests: XCTestCase {
         id: Int, artists: [Int] = [1], label: Int? = 15, want: Int = 100,
         decided: Bool = false, owned: Bool = false, revisit: Date? = nil
     ) -> ScoringCandidate {
+        // Playable throughout, so these tests measure the weighting alone.
         ScoringCandidate(
             releaseID: id, artistIDs: artists, labelID: label, want: want,
-            isDecided: decided, isOwned: owned, revisitAt: revisit
+            isDecided: decided, isOwned: owned, revisitAt: revisit,
+            preview: .available
         )
     }
 
@@ -27,8 +29,8 @@ final class ScorerTests: XCTestCase {
             candidates: [candidate(id: 1, want: 1)],
             weights: weights, labelNames: labelNames, now: now
         )
-        // affinity 1.1, single candidate so demand = 1, factor = 1.0
-        XCTAssertEqual(scored[0].score, 1.1, accuracy: 0.0001)
+        // affinity 1.1, saturated to 1.1/2.1; single candidate so demand = 1
+        XCTAssertEqual(scored[0].score, 1.1 / 2.1, accuracy: 0.0001)
     }
 
     func testDemandIsNormalisedAgainstPoolMaximum() {
@@ -39,9 +41,10 @@ final class ScorerTests: XCTestCase {
         let top = scored.first { $0.releaseID == 1 }!
         let bottom = scored.first { $0.releaseID == 2 }!
 
-        XCTAssertEqual(top.score, 1.1 * 1.0, accuracy: 0.0001)
+        let saturated = 1.1 / 2.1
+        XCTAssertEqual(top.score, saturated * 1.0, accuracy: 0.0001)
         let expectedDemand = log1p(1.0) / log1p(1000.0)
-        XCTAssertEqual(bottom.score, 1.1 * (0.7 + 0.3 * expectedDemand), accuracy: 0.0001)
+        XCTAssertEqual(bottom.score, saturated * (0.7 + 0.3 * expectedDemand), accuracy: 0.0001)
     }
 
     func testDemandContributesAtMostThirtyPercent() {

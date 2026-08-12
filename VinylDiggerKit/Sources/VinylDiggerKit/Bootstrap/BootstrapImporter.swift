@@ -44,6 +44,28 @@ public struct BootstrapImporter {
         }
     }
 
+    /// Puts the seed weights back. Runs on every launch, not just on an empty
+    /// database: expansion used to overwrite them, and without seeds the propagator
+    /// has nothing to start from and the queue comes back empty. Returns how many
+    /// seeds the profile holds.
+    @discardableResult
+    public func restoreSeedWeights(profile: Data) throws -> Int {
+        let dump = try JSONDecoder().decode(ProfileDump.self, from: profile)
+
+        return try database.write { db in
+            for seed in dump.profile.values {
+                try db.execute(
+                    sql: """
+                        INSERT INTO artist (id, name, weight) VALUES (?, ?, 1.0)
+                        ON CONFLICT(id) DO UPDATE SET name = excluded.name, weight = 1.0
+                        """,
+                    arguments: [seed.id, seed.discogs_name]
+                )
+            }
+            return dump.profile.count
+        }
+    }
+
     public func importDumps(profile: Data, labels: Data) throws -> BootstrapSummary {
         let decoder = JSONDecoder()
         let profileDump = try decoder.decode(ProfileDump.self, from: profile)

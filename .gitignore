@@ -6,3 +6,4 @@ DerivedData/
 .superpowers/
 .build/
 .swiftpm/
+.claude/

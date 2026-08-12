@@ -62,6 +62,212 @@ final class QueueServiceTests: XCTestCase {
         XCTAssertTrue(cards[0].reason.contains("20:20 Vision"))
     }
 
+    private var releaseBody: Data {
+        Data(#"""
+        {"id": 2831, "title": "Fresh Connections", "labels": [], "artists": [],
+         "community": {"want": 600, "have": 520, "rating": {"average": 4.22, "count": 79}},
+         "images": [{"type": "primary", "uri": "https://i.discogs.com/front.jpeg"}],
+         "tracklist": [{"position": "B1", "title": "Fresh Connections"}],
+         "videos": [{"uri": "https://youtu.be/cqRa3O8xQNQ",
+                     "title": "Inland Knights - Fresh Connections", "duration": 451}]}
+        """#.utf8)
+    }
+
+    func testHydrateReleaseStoresRatingCoverAndVideoDetail() async throws {
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: releaseBody)])
+        )
+        try seedGraph(db)
+
+        let stored = try await service.hydrateRelease(releaseID: 2831)
+
+        XCTAssertEqual(stored.rating, 4.22, accuracy: 0.001)
+        XCTAssertEqual(stored.ratingCount, 79)
+        XCTAssertEqual(stored.want, 600)
+        XCTAssertEqual(stored.coverURL, "https://i.discogs.com/front.jpeg")
+
+        let video = try db.read {
+            try VideoRecord.filter(Column("releaseID") == 2831).fetchOne($0)
+        }
+        XCTAssertEqual(video?.title, "Inland Knights - Fresh Connections")
+        XCTAssertEqual(video?.duration, 451)
+        XCTAssertEqual(video?.trackPosition, "B1")
+    }
+
+    func testHydrateReleaseInsertsVideosThatDoNotExistYet() async throws {
+        let body = Data(#"""
+        {"id": 7000, "title": "Expanded EP", "labels": [], "artists": [],
+         "community": {"want": 5, "have": 2, "rating": {"average": 4.0, "count": 3}},
+         "tracklist": [{"position": "A1", "title": "First"}, {"position": "B1", "title": "Second"}],
+         "videos": [{"uri": "https://youtu.be/aaa", "title": "Artist - First", "duration": 300},
+                    {"uri": "https://youtu.be/bbb", "title": "Artist - Second", "duration": 240}]}
+        """#.utf8)
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: body)])
+        )
+        // A release the graph expansion added: no videos of its own.
+        try db.write { database in
+            var record = ReleaseRecord(
+                id: 7000, title: "Expanded EP", artistName: "Artist", year: nil, catno: nil,
+                labelID: nil, styles: [], want: 0, have: 0, hydrated: false
+            )
+            try record.save(database)
+        }
+
+        _ = try await service.hydrateRelease(releaseID: 7000)
+
+        let videos = try db.read {
+            try VideoRecord.filter(Column("releaseID") == 7000).order(Column("position")).fetchAll($0)
+        }
+        XCTAssertEqual(videos.count, 2)
+        XCTAssertEqual(videos.map(\.youtubeID), ["aaa", "bbb"])
+        XCTAssertEqual(videos[0].trackPosition, "A1")
+        XCTAssertEqual(videos[0].duration, 300)
+        XCTAssertEqual(videos[1].trackPosition, "B1")
+    }
+
+    func testHydrateReleaseDoesNotDuplicateExistingVideos() async throws {
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: releaseBody)])
+        )
+        try seedGraph(db)
+
+        _ = try await service.hydrateRelease(releaseID: 2831)
+
+        let videos = try db.read {
+            try VideoRecord.filter(Column("releaseID") == 2831).fetchAll($0)
+        }
+        XCTAssertEqual(videos.count, 1, "the seeded video must be updated, not duplicated")
+        XCTAssertEqual(videos[0].duration, 451)
+    }
+
+    func testHydrateReleaseCorrectsAWrongTitle() async throws {
+        // What a mis-filed master id leaves behind: our row claims one record, the
+        // id actually belongs to another.
+        let body = Data(#"""
+        {"id": 3945572, "title": "Weekly Magic Tape #79", "year": 2012,
+         "artists": [{"id": 7, "name": "Diverse"}], "labels": [], "community": {},
+         "videos": [], "tracklist": []}
+        """#.utf8)
+        let (service, db) = try makeService(
+            transport: StubTransport(replies: [.init(body: body)])
+        )
+        try db.write { database in
+            var wrong = ReleaseRecord(
+                id: 3945572, title: "Avoidance", artistName: "Snad", year: 2021,
+                catno: nil, labelID: nil, styles: [], want: 0, have: 0, hydrated: false
+            )
+            try wrong.save(database)
+        }
+
+        let stored = try await service.hydrateRelease(releaseID: 3945572)
+
+        XCTAssertEqual(stored.title, "Weekly Magic Tape #79")
+        XCTAssertEqual(stored.artistName, "Diverse")
+        XCTAssertEqual(stored.year, 2012)
+    }
+
+    func testHydrateReleaseIsSkippedWhenAlreadyKnown() async throws {
+        let transport = StubTransport(replies: [])
+        let (service, db) = try makeService(transport: transport)
+        try seedGraph(db)
+        try db.write { database in
+            try database.execute(sql: """
+                UPDATE release SET rating = 3.5, ratingCount = 12, detailFetched = 1
+                WHERE id = 2831
+                """)
+        }
+
+        let stored = try await service.hydrateRelease(releaseID: 2831)
+
+        XCTAssertEqual(stored.ratingCount, 12)
+        XCTAssertTrue(transport.sentRequests.isEmpty)
+    }
+
+    func testHydrateReleaseIsSkippedOnceFetchedEvenWithoutRating() async throws {
+        let body = Data(#"""
+        {"id": 2831, "title": "Fresh Connections", "labels": [], "artists": [],
+         "community": {"want": 12, "have": 4, "rating": {"average": 0, "count": 0}}}
+        """#.utf8)
+        let transport = StubTransport(replies: [.init(body: body)])
+        let (service, db) = try makeService(transport: transport)
+        try seedGraph(db)
+
+        _ = try await service.hydrateRelease(releaseID: 2831)
+        XCTAssertEqual(transport.sentRequests.count, 1)
+
+        // An unrated release must not be fetched again on every visit.
+        _ = try await service.hydrateRelease(releaseID: 2831)
+        XCTAssertEqual(transport.sentRequests.count, 1)
+
+        let stored = try db.read { try ReleaseRecord.fetchOne($0, key: 2831) }
+        XCTAssertTrue(stored?.detailFetched ?? false)
+    }
+
+    func testRefreshedCardKeepsIdentityAndReasonButPicksUpNewDetail() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        let original = try service.rebuildQueue(limit: 10)[0]
+        XCTAssertNil(original.coverURL)
+
+        try db.write { database in
+            try database.execute(sql: """
+                UPDATE release SET rating = 4.22, ratingCount = 79,
+                coverURL = 'https://i.discogs.com/front.jpeg' WHERE id = 2831
+                """)
+            try database.execute(sql: """
+                UPDATE video SET title = 'Inland Knights - Fresh Connections',
+                duration = 451, trackPosition = 'B1' WHERE releaseID = 2831
+                """)
+        }
+
+        let refreshed = try service.refreshedCard(original)
+
+        XCTAssertEqual(refreshed.releaseID, original.releaseID)
+        XCTAssertEqual(refreshed.reason, original.reason)
+        XCTAssertEqual(refreshed.videoIDs, original.videoIDs)
+        XCTAssertEqual(refreshed.coverURL, "https://i.discogs.com/front.jpeg")
+        XCTAssertEqual(refreshed.rating ?? 0, 4.22, accuracy: 0.001)
+        XCTAssertEqual(refreshed.tracks[0].position, "B1")
+        XCTAssertEqual(refreshed.tracks[0].duration, 451)
+    }
+
+    func testRefreshedCardReturnsInputWhenReleaseVanished() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        let original = try service.rebuildQueue(limit: 10)[0]
+
+        try db.write { database in
+            try database.execute(sql: "DELETE FROM release WHERE id = 2831")
+        }
+
+        XCTAssertEqual(try service.refreshedCard(original), original)
+    }
+
+    func testRebuildQueueCarriesCoverAndTracksOntoCard() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            try database.execute(sql: """
+                UPDATE release SET rating = 4.22, ratingCount = 79,
+                coverURL = 'https://i.discogs.com/front.jpeg' WHERE id = 2831
+                """)
+            try database.execute(sql: """
+                UPDATE video SET title = 'Inland Knights - Fresh Connections',
+                duration = 451, trackPosition = 'B1' WHERE releaseID = 2831
+                """)
+        }
+
+        let cards = try service.rebuildQueue(limit: 10)
+
+        XCTAssertEqual(cards[0].rating ?? 0, 4.22, accuracy: 0.001)
+        XCTAssertEqual(cards[0].coverURL, "https://i.discogs.com/front.jpeg")
+        XCTAssertEqual(cards[0].tracks.count, 1)
+        XCTAssertEqual(cards[0].tracks[0].youtubeID, "cqRa3O8xQNQ")
+        XCTAssertEqual(cards[0].tracks[0].position, "B1")
+        XCTAssertEqual(cards[0].tracks[0].duration, 451)
+    }
+
     func testRebuildQueuePersistsQueueItems() throws {
         let (service, db) = try makeService()
         try seedGraph(db)
@@ -210,5 +416,104 @@ final class QueueServiceTests: XCTestCase {
         let edges = try db.read { try EdgeRecord.fetchAll($0) }
         XCTAssertTrue(edges.contains { $0.kind == .alias && $0.toID == 999 })
         XCTAssertTrue(edges.contains { $0.kind == .group && $0.toID == 555 })
+    }
+
+    // MARK: - Discovery leak (review item 1)
+
+    func testDiscoveredReleaseStaysOutOfQueueUntilDecided() throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            // Resolves to the seeded artist, so before the fix its affinity — and
+            // score — would be nonzero even though nobody has decided on it yet.
+            var discovered = ReleaseRecord(
+                id: 9001, title: "Chart Hit", artistName: "Carl A. Finlow",
+                year: 2020, catno: nil, labelID: nil, styles: [], want: 10, have: 1,
+                hydrated: true, discovered: true
+            )
+            try discovered.save(database)
+        }
+
+        let cards = try service.rebuildQueue(limit: 10)
+
+        XCTAssertFalse(
+            cards.contains { $0.releaseID == 9001 },
+            "a discovery stub must not reach the ordinary queue before the user decides on it"
+        )
+    }
+
+    func testDiscoveredReleaseReturnsToQueueLikeAnyOtherOnceDecided() async throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            var discovered = ReleaseRecord(
+                id: 9001, title: "Chart Hit", artistName: "Carl A. Finlow",
+                year: 2020, catno: nil, labelID: nil, styles: [], want: 10, have: 1,
+                hydrated: true, discovered: true
+            )
+            try discovered.save(database)
+        }
+
+        try await service.decide(releaseID: 9001, kind: .later)
+
+        // rebuildQueue only needs a fresh clock past the revisit date — a new
+        // service pointed at the same database is enough, no network involved.
+        let later = now.addingTimeInterval(QueueService.revisitInterval + 1)
+        let laterClient = DiscogsClient(
+            transport: StubTransport(replies: []), secrets: InMemorySecretStore(),
+            limiter: RateLimiter(capacity: 100, refillPerSecond: 100),
+            userAgent: "VinylDiggerTests/1.0"
+        )
+        let laterService = QueueService(
+            database: db, client: laterClient,
+            outbox: OutboxProcessor(database: db, writer: laterClient, username: "schakal", now: { later }),
+            username: "schakal", now: { later }
+        )
+
+        let cards = try laterService.rebuildQueue(limit: 10)
+
+        XCTAssertTrue(
+            cards.contains { $0.releaseID == 9001 },
+            "once the user has decided on it, a discovered record is no longer held back by the flag alone"
+        )
+    }
+
+    // MARK: - Discovery discards do not debit taste (review item 2)
+
+    func testDiscardingADiscoveredReleaseDoesNotDebitTheResolvedLabel() async throws {
+        let (service, db) = try makeService()
+        try seedGraph(db)
+        try db.write { database in
+            // Neither release's artist is in the graph, so their score is driven
+            // purely by label 15's propagated weight — isolating the credit under
+            // test from the (separately floor-clamped) artist weight column.
+            // Both `want` values stay well under release 2831's 582, so max-want
+            // normalisation is identical before and after the decision.
+            var probe = ReleaseRecord(
+                id: 5000, title: "Probe", artistName: "Nobody In The Graph",
+                year: 2001, catno: nil, labelID: 15, styles: [], want: 10, have: 1,
+                hydrated: true
+            )
+            try probe.save(database)
+            var discovered = ReleaseRecord(
+                id: 9001, title: "Chart Hit", artistName: "Nobody In The Graph",
+                year: 2020, catno: nil, labelID: 15, styles: [], want: 10, have: 1,
+                hydrated: true, discovered: true
+            )
+            try discovered.save(database)
+        }
+
+        _ = try service.rebuildQueue(limit: 10)
+        let before = try XCTUnwrap(try db.read { try QueueItemRecord.fetchOne($0, key: 5000) })
+
+        try await service.decide(releaseID: 9001, kind: .discard)
+
+        _ = try service.rebuildQueue(limit: 10)
+        let after = try XCTUnwrap(try db.read { try QueueItemRecord.fetchOne($0, key: 5000) })
+
+        XCTAssertEqual(
+            before.score, after.score, accuracy: 0.0001,
+            "discarding a discovered record must not debit the label weight it resolves to"
+        )
     }
 }

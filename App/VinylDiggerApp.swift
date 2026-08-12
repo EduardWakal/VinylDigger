@@ -7,10 +7,9 @@ struct VinylDiggerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            QueueView()
+            RootView()
                 .environmentObject(environment)
         }
-        .windowResizability(.contentSize)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button("Queue neu berechnen") {
@@ -20,13 +19,7 @@ struct VinylDiggerApp: App {
             }
         }
 
-        Window("Seeds", id: "seeds") {
-            SeedsView().environmentObject(environment)
-        }
 
-        Window("Verlauf", id: "history") {
-            HistoryView().environmentObject(environment)
-        }
 
         Settings {
             SettingsView().environmentObject(environment)
